@@ -1,0 +1,37 @@
+name: AutoSc
+options:
+  bundleIdPrefix: com.autosc
+  deploymentTarget:
+    iOS: "15.0"
+  xcodeVersion: "15.0"
+
+targets:
+  AutoSc:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: AutoSc
+    info:
+      path: AutoSc/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.autosc.app
+        INFOPLIST_FILE: AutoSc/Info.plist
+        CODE_SIGN_IDENTITY: ""
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+        ENABLE_BITCODE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        OTHER_LDFLAGS: "-weak_framework IOKit"
+        GCC_PREPROCESSOR_DEFINITIONS: ""
+        SWIFT_OBJC_BRIDGING_HEADER: "AutoSc/Bridging-Header.h"
+    preBuildScripts:
+      - name: "Clean dSYM"
+        script: |
+          find "${BUILT_PRODUCTS_DIR}" -name "*.dSYM" -type d -exec rm -rf {} + 2>/dev/null || true

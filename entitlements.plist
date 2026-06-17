@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>platform-application</key>
+    <true/>
+    <key>com.apple.private.hid.manager.user-access-service</key>
+    <true/>
+    <key>com.apple.private.hid.client.event-dispatch</key>
+    <true/>
+    <key>com.apple.private.security.no-sandbox</key>
+    <true/>
+    <key>com.apple.private.skip-library-validation</key>
+    <true/>
+    <key>com.apple.private.iokit.user-client-cross-endian</key>
+    <true/>
+    <key>run-unsigned-code</key>
+    <true/>
+    <key>com.apple.backboardd.pointer</key>
+    <true/>
+    <key>com.apple.backboardd.hid-events</key>
+    <true/>
+    <key>com.apple.springboard.debugapplications</key>
+    <true/>
+    <key>com.apple.system-task-ports</key>
+    <true/>
+    <key>task_for_pid-allow</key>
+    <true/>
+</dict>
+</plist>

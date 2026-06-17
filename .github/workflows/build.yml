@@ -1,0 +1,102 @@
+name: Build AutoSc IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  SCHEME: AutoSc
+  PROJECT: AutoSc.xcodeproj
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Patch project format
+        run: |
+          sed -i '' 's/objectVersion = 77;/objectVersion = 56;/g' AutoSc.xcodeproj/project.pbxproj
+          echo "Fixed objectVersion"
+
+      - name: Build archive
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -archivePath "build/AutoSc.xcarchive" \
+            -destination "generic/platform=iOS" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="" \
+            IPHONEOS_DEPLOYMENT_TARGET="15.0" \
+            ONLY_ACTIVE_ARCH=NO \
+            | tee build.log
+
+      - name: Find .app
+        id: find_app
+        run: |
+          APP=$(find build -name "AutoSc.app" -type d | head -1)
+          if [ -z "$APP" ]; then
+            echo "ERROR: .app not found"
+            find build -name "*.app" -type d
+            exit 1
+          fi
+          echo "APP_PATH=$APP" >> $GITHUB_OUTPUT
+          echo "Found app at: $APP"
+
+      - name: Clean .app for TrollStore
+        run: |
+          APP="${{ steps.find_app.outputs.APP_PATH }}"
+          find "$APP" -name "*.dSYM" -type d -exec rm -rf {} + 2>/dev/null || true
+          rm -rf "$APP/_CodeSignature" 2>/dev/null || true
+          rm -rf "$APP/SC_Info" 2>/dev/null || true
+          rm -f "$APP/embedded.mobileprovision" 2>/dev/null || true
+
+      - name: Sign with ldid + entitlements
+        run: |
+          brew install ldid-procursus
+          APP="${{ steps.find_app.outputs.APP_PATH }}"
+          BINARY="$APP/AutoSc"
+          echo "=== Signing with entitlements ==="
+          ldid -Sentitlements.plist "$BINARY"
+          echo "=== Verifying entitlements ==="
+          ldid -e "$BINARY"
+          echo "=== Entitlements check complete ==="
+
+      - name: Generate IPA
+        run: |
+          APP="${{ steps.find_app.outputs.APP_PATH }}"
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -r AutoSc.ipa Payload
+          rm -rf Payload
+          ls -lh AutoSc.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoSc.ipa
+          path: AutoSc.ipa
+          retention-days: 30
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          retention-days: 7
