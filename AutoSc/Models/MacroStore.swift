@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 struct MacroFile: Identifiable, Codable, Equatable {
     let id: UUID
