@@ -20,7 +20,6 @@ struct LuaEditorView: View {
                 TextEditor(text: $script)
                     .font(.system(.body, design: .monospaced))
                     .foregroundColor(.white)
-                    .if_iOS16 { $0.scrollContentBackground(.hidden) }
                     .background(Color.black.opacity(0.3))
                     .padding(.horizontal, 8)
             }
@@ -137,16 +136,5 @@ struct LuaEditorView: View {
     private func saveScript() {
         try? MacroStore.saveLua(scriptName, script)
         savedScripts = MacroStore.listLuaScripts()
-    }
-}
-
-extension View {
-    @ViewBuilder
-    func if_iOS16<V: View>(_ transform: (Self) -> V) -> some View {
-        if #available(iOS 16.0, *) {
-            transform(self)
-        } else {
-            self
-        }
     }
 }
