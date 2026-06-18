@@ -38,7 +38,7 @@ final class TweakComm {
         if status != 0 {
             lastError = "CFMessagePortSendRequest returned \(status)"
             connected = false
-            port = nil
+            self.port = nil
             return false
         }
         return true
