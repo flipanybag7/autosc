@@ -166,9 +166,11 @@ struct StatusView: View {
                     HStack {
                         Text("Background Task")
                         Spacer()
-                        Text(BackgroundKeepAlive.shared.bgTaskActive ? "Registered" : "Not Registered")
-                            .foregroundColor(BackgroundKeepAlive.shared.bgTaskActive ? .green : .red)
+                        Text(BackgroundKeepAlive.shared.bgTaskActive ? "Registered" : "Waiting (enter bg)")
+                            .foregroundColor(BackgroundKeepAlive.shared.bgTaskActive ? .green : .orange)
                     }
+                    Text("Go home to test — a swipe fires on the home screen after 3s.")
+                        .font(.caption).foregroundColor(.secondary)
                 }
 
                 if !log.isEmpty {
@@ -302,7 +304,6 @@ final class BackgroundKeepAlive: NSObject {
 
     func start() {
         setupAudio()
-        setupBackgroundTask()
         setupNotifications()
         isActive = true
     }
