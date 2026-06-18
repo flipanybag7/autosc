@@ -387,11 +387,95 @@ void gs_touch_up(float x, float y) {}
 void gs_tap(float x, float y) {}
 void gs_swipe(float x1, float y1, float x2, float y2, float duration) {}
 
+#pragma mark - CGEvent (CoreGraphics mouse events → touch on iOS)
+
+typedef struct CGEvent* CGEventRef;
+typedef struct CGEventSource* CGEventSourceRef;
+typedef double CGEventTimestamp;
+
+static bool _cgevent_ok = false;
+static char _cgevent_error[512] = "";
+
+static CGEventRef (*_CGEventCreateMouseEvent)(CGEventSourceRef, int32_t, CGPoint, int32_t);
+static void (*_CGEventPost)(int32_t, CGEventRef);
+static void (*_CGEventSetIntegerValueField)(CGEventRef, int32_t, int64_t);
+
+bool cgevent_init(void) {
+    if (_cgevent_ok) return true;
+
+    void* handle = dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", RTLD_NOW | RTLD_LOCAL);
+    if (!handle) {
+        handle = dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", RTLD_LAZY | RTLD_LOCAL);
+    }
+    if (!handle) {
+        snprintf(_cgevent_error, sizeof(_cgevent_error), "dlopen CoreGraphics failed");
+        return false;
+    }
+
+    _CGEventCreateMouseEvent = dlsym(handle, "CGEventCreateMouseEvent");
+    _CGEventPost = dlsym(handle, "CGEventPost");
+
+    if (!_CGEventCreateMouseEvent || !_CGEventPost) {
+        snprintf(_cgevent_error, sizeof(_cgevent_error), "dlsym CGEventCreateMouseEvent/Post failed");
+        return false;
+    }
+
+    _cgevent_ok = true;
+    return true;
+}
+
+bool cgevent_ready(void) { return _cgevent_ok; }
+const char* cgevent_error(void) { return _cgevent_error; }
+
+void cgevent_tap(float x, float y) {
+    if (!_CGEventCreateMouseEvent || !_CGEventPost) return;
+    CGPoint pt = { (CGFloat)x, (CGFloat)y };
+    CGEventRef down = _CGEventCreateMouseEvent(NULL, 1, pt, 0);  /* kCGEventLeftMouseDown */
+    CGEventRef up = _CGEventCreateMouseEvent(NULL, 2, pt, 0);    /* kCGEventLeftMouseUp */
+    if (down) { _CGEventPost(0, down); CFRelease(down); }
+    usleep(60000);
+    if (up) { _CGEventPost(0, up); CFRelease(up); }
+}
+
+void cgevent_touch_down(float x, float y) {
+    if (!_CGEventCreateMouseEvent || !_CGEventPost) return;
+    CGPoint pt = { (CGFloat)x, (CGFloat)y };
+    CGEventRef ev = _CGEventCreateMouseEvent(NULL, 1, pt, 0);
+    if (ev) { _CGEventPost(0, ev); CFRelease(ev); }
+}
+
+void cgevent_touch_up(float x, float y) {
+    if (!_CGEventCreateMouseEvent || !_CGEventPost) return;
+    CGPoint pt = { (CGFloat)x, (CGFloat)y };
+    CGEventRef ev = _CGEventCreateMouseEvent(NULL, 2, pt, 0);
+    if (ev) { _CGEventPost(0, ev); CFRelease(ev); }
+}
+
+void cgevent_swipe(float x1, float y1, float x2, float y2, float duration) {
+    int steps = (int)(duration * 60);
+    if (steps < 10) steps = 10;
+    useconds_t delay = (useconds_t)(duration / (float)steps * 1000000.0f);
+
+    cgevent_touch_down(x1, y1);
+    for (int i = 1; i <= steps; i++) {
+        usleep(delay);
+        float t = (float)i / (float)steps;
+        float cx = x1 + (x2 - x1) * t;
+        float cy = y1 + (y2 - y1) * t;
+        CGPoint pt = { (CGFloat)cx, (CGFloat)cy };
+        CGEventRef ev = _CGEventCreateMouseEvent(NULL, 3, pt, 0);  /* kCGEventLeftMouseDragged */
+        if (ev) { _CGEventPost(0, ev); CFRelease(ev); }
+    }
+    usleep(40000);
+    cgevent_touch_up(x2, y2);
+}
+
 #pragma mark - Method selection
 
 int inject_method(void) {
     if (_hid_ok) return 0;
     if (_userdev_ok) return 2;
+    if (_cgevent_ok) return 3;
     if (_gs_ok) return 1;
     return -1;
 }
@@ -399,6 +483,7 @@ int inject_method(void) {
 const char* inject_method_name(void) {
     if (_hid_ok) return "IOKit HID";
     if (_userdev_ok) return "IOKit UserDevice";
+    if (_cgevent_ok) return "CGEvent";
     if (_gs_ok) return "GraphicsServices";
     return "none";
 }
@@ -406,6 +491,7 @@ const char* inject_method_name(void) {
 const char* inject_error(void) {
     if (!_hid_ok && _hid_error[0]) return _hid_error;
     if (!_userdev_ok && _userdev_error[0]) return _userdev_error;
+    if (!_cgevent_ok && _cgevent_error[0]) return _cgevent_error;
     if (!_gs_ok && _gs_error[0]) return _gs_error;
     return "";
 }

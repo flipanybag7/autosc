@@ -11,6 +11,7 @@ final class TouchInjector {
     private(set) var hidError: String = ""
     private(set) var gsError: String = ""
     private(set) var userdevError: String = ""
+    private(set) var cgeventError: String = ""
     private(set) var hidSendFailures: Int = 0
     private(set) var hidDispatchErr: Int = 0
 
@@ -24,11 +25,13 @@ final class TouchInjector {
         case 0: method = "IOKit HID"
         case 1: method = "GraphicsServices"
         case 2: method = "IOKit UserDevice"
+        case 3: method = "CGEvent"
         default: method = "none"
         }
         hidError = String(cString: hid_error())
         gsError = String(cString: gs_error())
         userdevError = String(cString: userdev_error())
+        cgeventError = String(cString: cgevent_error())
         hidSendFailures = Int(hid_send_failures())
         hidDispatchErr = Int(hid_dispatch_err())
 
@@ -47,37 +50,47 @@ final class TouchInjector {
         return ok
     }
 
-    var useUserDevice: Bool {
-        userdev_ready()
+    private func dispatchTouch(at point: CGPoint, fingerId: Int32 = 0, phase: Int) {
+        let m = inject_method()
+        switch m {
+        case 0: // IOKit HID
+            if phase == 0 { hid_touch_down(Float(point.x), Float(point.y), fingerId) }
+            else if phase == 1 { hid_touch_move(Float(point.x), Float(point.y), fingerId) }
+            else { hid_touch_up(Float(point.x), Float(point.y), fingerId) }
+        case 1: // GraphicsServices (no-op on iOS 15)
+            break
+        case 2: // IOHIDUserDevice
+            userdev_touch(Float(point.x), Float(point.y), fingerId, Int32(phase))
+        case 3: // CGEvent
+            if phase == 0 { cgevent_touch_down(Float(point.x), Float(point.y)) }
+            else if phase == 1 { /* cgevent doesn't support move directly, handled by swipe */ }
+            else { cgevent_touch_up(Float(point.x), Float(point.y)) }
+        default:
+            break
+        }
     }
 
     func touchDown(at point: CGPoint, fingerId: Int32 = 0) {
         guard canInject else { return }
-        if useUserDevice {
-            userdev_touch(Float(point.x), Float(point.y), fingerId, 0)
-        } else {
-            hid_touch_down(Float(point.x), Float(point.y), fingerId)
-        }
+        dispatchTouch(at: point, fingerId: fingerId, phase: 0)
         injectionCount += 1
     }
 
     func touchMove(to point: CGPoint, fingerId: Int32 = 0) {
         guard canInject else { return }
-        if useUserDevice {
-            userdev_touch(Float(point.x), Float(point.y), fingerId, 1)
-        } else {
-            hid_touch_move(Float(point.x), Float(point.y), fingerId)
+        let m = inject_method()
+        switch m {
+        case 0: hid_touch_move(Float(point.x), Float(point.y), fingerId)
+        case 2: userdev_touch(Float(point.x), Float(point.y), fingerId, 1)
+        case 3: cgevent_touch_down(Float(point.x), Float(point.y)) /* send as new drag event */
+        default: break
         }
         injectionCount += 1
     }
 
     func touchUp(at point: CGPoint, fingerId: Int32 = 0) {
         guard canInject else { return }
-        if useUserDevice {
-            userdev_touch(Float(point.x), Float(point.y), fingerId, 2)
-        } else {
-            hid_touch_up(Float(point.x), Float(point.y), fingerId)
-        }
+        dispatchTouch(at: point, fingerId: fingerId, phase: 2)
         injectionCount += 1
     }
 

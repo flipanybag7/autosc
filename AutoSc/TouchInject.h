@@ -34,6 +34,14 @@ void gs_touch_up(float x, float y);
 void gs_tap(float x, float y);
 void gs_swipe(float x1, float y1, float x2, float y2, float duration);
 
+bool cgevent_init(void);
+bool cgevent_ready(void);
+const char* cgevent_error(void);
+void cgevent_tap(float x, float y);
+void cgevent_touch_down(float x, float y);
+void cgevent_touch_up(float x, float y);
+void cgevent_swipe(float x1, float y1, float x2, float y2, float duration);
+
 int inject_method(void);
 const char* inject_method_name(void);
 const char* inject_error(void);

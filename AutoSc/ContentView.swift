@@ -125,6 +125,22 @@ struct StatusView: View {
                         }
                     }
                     HStack {
+                        Text("CGEvent")
+                        Spacer()
+                        Text(appState.cgeventAvailable ? "Available" : "Unavailable")
+                            .foregroundColor(appState.cgeventAvailable ? .green : .red)
+                    }
+                    if !appState.cgeventError.isEmpty {
+                        HStack {
+                            Text("CGEvent Detail")
+                            Spacer()
+                            Text(appState.cgeventError)
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+                    HStack {
                         Text("Events Injected")
                         Spacer()
                         Text("\(appState.injectionCount)")

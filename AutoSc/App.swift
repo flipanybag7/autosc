@@ -9,13 +9,16 @@ struct AutoScApp: App {
         let hidOk = hid_init()
         let gsOk = gs_init()
         let udOk = userdev_init()
+        let cgOk = cgevent_init()
         let hidErr = String(cString: hid_error())
         let gsErr = String(cString: gs_error())
         let udErr = String(cString: userdev_error())
+        let cgErr = String(cString: cgevent_error())
         print("[AutoSc] IOKit HID: \(hidOk ? "OK" : "FAIL") \(hidErr)")
         print("[AutoSc] GraphicsServices: \(gsOk ? "OK" : "FAIL") \(gsErr)")
         print("[AutoSc] IOHIDUserDevice: \(udOk ? "OK" : "FAIL") \(udErr)")
-        if !hidOk && !gsOk && !udOk {
+        print("[AutoSc] CGEvent: \(cgOk ? "OK" : "FAIL") \(cgErr)")
+        if !hidOk && !gsOk && !udOk && !cgOk {
             let err = String(cString: inject_error())
             print("[AutoSc] ERROR: \(err)")
         }
@@ -42,6 +45,8 @@ final class AppState: ObservableObject {
     @Published var hidSendFailures: Int = 0
     @Published var userdevAvailable: Bool = false
     @Published var userdevError: String = ""
+    @Published var cgeventAvailable: Bool = false
+    @Published var cgeventError: String = ""
 
     private init() {}
 
@@ -56,6 +61,8 @@ final class AppState: ObservableObject {
         gsError = String(cString: gs_error())
         userdevError = String(cString: userdev_error())
         userdevAvailable = userdev_ready()
+        cgeventAvailable = cgevent_ready()
+        cgeventError = String(cString: cgevent_error())
         hidSendFailures = Int(hid_send_failures())
 
         if injectMethod == "none" {
