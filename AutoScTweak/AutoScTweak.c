@@ -103,7 +103,7 @@ static void send_hid(float x, float y, int touch_type) {
 #pragma mark - GSEvent (alternative from SpringBoard context)
 
 static void* _gs_handle = NULL;
-static void (*_GSCreateEvent)(const void* record);
+static void* (*_GSCreateEvent)(const void* record);
 static void (*_GSSendEvent)(void* event, int32_t port);
 
 static bool init_gs(void) {
@@ -140,7 +140,9 @@ static void send_gs(float x, float y, int phase) {
     W32(3001); W32(0); WF(x); WF(y); W64(mach_absolute_time());
     W32(1); W32(0); W32(phase); W32(phase == 2 ? 0 : 1); WF(x); WF(y);
     W32(0); W32(phase == 2 ? 0 : 1); W32(0); W32(0); W32(0); W32(0);
-    #undef W32 #undef W64 #undef WF
+    #undef W32
+    #undef W64
+    #undef WF
 
     void* evt = _GSCreateEvent(record);
     if (evt) { _GSSendEvent(evt, 0); CFRelease(evt); }
