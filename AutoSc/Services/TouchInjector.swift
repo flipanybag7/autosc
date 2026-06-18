@@ -53,12 +53,14 @@ final class TouchInjector {
     private func dispatchTouch(at point: CGPoint, fingerId: Int32 = 0, phase: Int) {
         let m = inject_method()
         switch m {
+        case 1: // GraphicsServices (GSEvent via GSSendEvent)
+            if phase == 0 { gs_touch_down(Float(point.x), Float(point.y)) }
+            else if phase == 1 { gs_touch_move(Float(point.x), Float(point.y)) }
+            else { gs_touch_up(Float(point.x), Float(point.y)) }
         case 0: // IOKit HID
             if phase == 0 { hid_touch_down(Float(point.x), Float(point.y), fingerId) }
             else if phase == 1 { hid_touch_move(Float(point.x), Float(point.y), fingerId) }
             else { hid_touch_up(Float(point.x), Float(point.y), fingerId) }
-        case 1: // GraphicsServices (no-op on iOS 15)
-            break
         case 2: // IOHIDUserDevice
             userdev_touch(Float(point.x), Float(point.y), fingerId, Int32(phase))
         case 3: // CGEvent
@@ -80,9 +82,10 @@ final class TouchInjector {
         guard canInject else { return }
         let m = inject_method()
         switch m {
+        case 1: gs_touch_move(Float(point.x), Float(point.y))
         case 0: hid_touch_move(Float(point.x), Float(point.y), fingerId)
         case 2: userdev_touch(Float(point.x), Float(point.y), fingerId, 1)
-        case 3: cgevent_touch_down(Float(point.x), Float(point.y)) /* send as new drag event */
+        case 3: cgevent_touch_down(Float(point.x), Float(point.y))
         default: break
         }
         injectionCount += 1

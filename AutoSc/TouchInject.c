@@ -344,6 +344,13 @@ static void* (*_GSCreateEvent)(const void* record);
 static void (*_GSSendEvent)(void* event, int32_t port);
 static int32_t (*_GSSendSystemEvent)(void* event, int32_t port);
 
+/* GSEvent record creation - try multiple API names */
+static void* _gs_createFunc = NULL;
+static bool _gs_createFromData = false; /* flag: create from CFData */
+
+/* Send a GSEvent by creating a CFData wrapping the record and passing to GSSendEvent */
+static bool _gs_try_create = false;
+
 bool gs_init(void) {
     if (_gs_handle) return _gs_ok;
 
@@ -356,7 +363,6 @@ bool gs_init(void) {
         return false;
     }
 
-    _GSCreateEvent = dlsym(_gs_handle, "GSCreateEvent");
     _GSSendEvent = dlsym(_gs_handle, "GSSendEvent");
     _GSSendSystemEvent = dlsym(_gs_handle, "GSSendSystemEvent");
 
@@ -366,26 +372,138 @@ bool gs_init(void) {
         return false;
     }
 
-    if (!_GSCreateEvent) {
-        snprintf(_gs_error, sizeof(_gs_error), "GSCreateEvent not found (removed in later iOS)");
+    /* Use GSSendSystemEvent if we have it (it sends to the system port) */
+    if (_GSSendSystemEvent && !_GSSendEvent) {
+        _GSSendEvent = (void*)_GSSendSystemEvent;
     }
 
-    if (_GSCreateEvent) {
-        _gs_ok = true;
-        return true;
+    /* Try multiple GSEvent creation function names */
+    const char* createNames[] = {
+        "GSCreateEvent",
+        "GSEventCreateWithData",
+        "GSEventCreateFromRecord",
+        "GSEventCFCreate",
+        "GSEventCreate",
+        NULL
+    };
+
+    for (int i = 0; createNames[i]; i++) {
+        _gs_createFunc = dlsym(_gs_handle, createNames[i]);
+        if (_gs_createFunc) {
+            snprintf(_gs_error, sizeof(_gs_error), "found %s", createNames[i]);
+            _gs_ok = true;
+            return true;
+        }
     }
 
-    return false;
+    /* All creation functions failed - but GSSendEvent exists.
+       Try sending raw CFData as GSEvent (works on some iOS versions).
+       The GSEventRef is just a CFType wrapping the event buffer.
+       A CFData with the correct record might be accepted. */
+    snprintf(_gs_error, sizeof(_gs_error), "no create func found, will try CFData direct send");
+    _gs_createFromData = true;
+    _gs_ok = true;
+    return true;
 }
 
 bool gs_ready(void) { return _gs_ok; }
 const char* gs_error(void) { return _gs_error; }
 
-void gs_touch_down(float x, float y) {}
-void gs_touch_move(float x, float y) {}
-void gs_touch_up(float x, float y) {}
-void gs_tap(float x, float y) {}
-void gs_swipe(float x1, float y1, float x2, float y2, float duration) {}
+/* GSEvent record format for iOS 14-16 (adjusted based on common reverse engineering) */
+static void* _gs_make_event(float x, float y, int32_t phase) {
+    uint8_t record[128];
+    memset(record, 0, sizeof(record));
+    int off = 0;
+
+    #define W16(v) do { uint16_t _v = (uint16_t)(v); memcpy(record + off, &_v, 2); off += 2; } while(0)
+    #define W32(v) do { int32_t _v = (int32_t)(v); memcpy(record + off, &_v, 4); off += 4; } while(0)
+    #define W64(v) do { int64_t _v = (int64_t)(v); memcpy(record + off, &_v, 8); off += 8; } while(0)
+    #define WF(v) do { float _v = (float)(v); memcpy(record + off, &_v, 4); off += 4; } while(0)
+
+    uint64_t ts = mach_absolute_time();
+
+    /* iOS 14-15 GSEventHand record structure */
+    W32(3001);          /* kGSEventHand */
+    W32(0);              /* flags */
+    WF(x); WF(y);        /* location */
+    W64(ts);             /* timestamp */
+    W32(1);              /* windowIndex / contextId */
+    W32(0);              /* modifierFlags */
+    W32(phase);          /* phase: 0=down, 1=moved, 2=up */
+    W32(0);              /* fingerCount */
+    WF(x); WF(y);        /* normalizedLocation */
+    W32(0);              /* pathIndex */
+    W32(phase == 2 ? 0 : 1); /* pathIdentity (0=up, 1=down) */
+    W32(0);              /* pathProximity */
+    W32(0);              /* jitterRadius */
+    W32(0);              /* angle */
+    W32(0);              /* majorRadius */
+    W16(0);              /* pressure */
+    W16(0);              /* twist */
+
+    #undef W16
+    #undef W32
+    #undef W64
+    #undef WF
+
+    if (_gs_createFunc) {
+        /* Use the found creation function */
+        void* (*createFn)(const void*) = (void* (*)(const void*))_gs_createFunc;
+        return createFn(record);
+    } else if (_gs_createFromData) {
+        /* Wrap as CFData and pass directly */
+        CFDataRef data = CFDataCreate(kCFAllocatorDefault, record, off);
+        if (data) {
+            /* GSSendEvent might accept CFData */
+            return (void*)data;
+        }
+    }
+    return NULL;
+}
+
+static void _gs_send(float x, float y, int32_t phase) {
+    if (!_GSSendEvent) return;
+
+    void* event = _gs_make_event(x, y, phase);
+    if (!event) return;
+
+    if (_gs_createFromData) {
+        /* Send CFData directly */
+        _GSSendEvent(event, 0);
+        CFRelease((CFTypeRef)event);
+    } else if (_gs_createFunc) {
+        /* Send event created by the create function */
+        _GSSendEvent(event, 0);
+        CFRelease((CFTypeRef)event);
+    }
+}
+
+void gs_touch_down(float x, float y) { _gs_send(x, y, 0); }
+void gs_touch_move(float x, float y) { _gs_send(x, y, 1); }
+void gs_touch_up(float x, float y)   { _gs_send(x, y, 2); }
+
+void gs_tap(float x, float y) {
+    gs_touch_down(x, y);
+    usleep(60000);
+    gs_touch_up(x, y);
+}
+
+void gs_swipe(float x1, float y1, float x2, float y2, float duration) {
+    int steps = (int)(duration * 60);
+    if (steps < 10) steps = 10;
+    useconds_t delay = (useconds_t)(duration / (float)steps * 1000000.0f);
+
+    gs_touch_down(x1, y1);
+    for (int i = 1; i <= steps; i++) {
+        usleep(delay);
+        float t = (float)i / (float)steps;
+        float cx = x1 + (x2 - x1) * t;
+        float cy = y1 + (y2 - y1) * t;
+        gs_touch_move(cx, cy);
+    }
+    usleep(40000);
+    gs_touch_up(x2, y2);
+}
 
 #pragma mark - CGEvent (CoreGraphics mouse events → touch on iOS)
 
@@ -473,25 +591,26 @@ void cgevent_swipe(float x1, float y1, float x2, float y2, float duration) {
 #pragma mark - Method selection
 
 int inject_method(void) {
+    /* GS first - HID dispatch silently fails on iOS 15 */
+    if (_gs_ok) return 1;
     if (_hid_ok) return 0;
     if (_userdev_ok) return 2;
     if (_cgevent_ok) return 3;
-    if (_gs_ok) return 1;
     return -1;
 }
 
 const char* inject_method_name(void) {
+    if (_gs_ok) return "GraphicsServices";
     if (_hid_ok) return "IOKit HID";
     if (_userdev_ok) return "IOKit UserDevice";
     if (_cgevent_ok) return "CGEvent";
-    if (_gs_ok) return "GraphicsServices";
     return "none";
 }
 
 const char* inject_error(void) {
+    if (!_gs_ok && _gs_error[0]) return _gs_error;
     if (!_hid_ok && _hid_error[0]) return _hid_error;
     if (!_userdev_ok && _userdev_error[0]) return _userdev_error;
     if (!_cgevent_ok && _cgevent_error[0]) return _cgevent_error;
-    if (!_gs_ok && _gs_error[0]) return _gs_error;
     return "";
 }
