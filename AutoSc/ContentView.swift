@@ -1,6 +1,14 @@
 import SwiftUI
 import AVFoundation
-import UIKit
+    import UIKit
+
+func goToHomeScreen() {
+    let app = UIApplication.shared
+    let selector = #selector(URLSessionTask.suspend)
+    if app.responds(to: selector) {
+        app.perform(selector)
+    }
+}
 
 struct ContentView: View {
     @State private var selectedTab = 0
@@ -252,7 +260,7 @@ struct StatusView: View {
             }
         }
 
-        UIControl.sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
+        goToHomeScreen()
     }
 }
 
