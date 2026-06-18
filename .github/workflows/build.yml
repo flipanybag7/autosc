@@ -133,6 +133,8 @@ jobs:
           echo "=== Embedding tweak in .app ==="
           cp AutoScTweak.dylib "$APP/AutoScTweak.dylib"
           chmod 644 "$APP/AutoScTweak.dylib"
+          cp AutoScTweak/AutoScTweak.plist "$APP/AutoScTweak.plist"
+          chmod 644 "$APP/AutoScTweak.plist"
 
       - name: Sign with ldid + entitlements
         run: |
