@@ -69,10 +69,6 @@ jobs:
             -o /tmp/th /tmp/th.c
           echo "=== Helper binary compiled ==="
           ls -la /tmp/th
-          B64=$(base64 -i /tmp/th | tr -d '\n')
-          mkdir -p AutoSc/Resources
-          echo "let helperBinaryB64 = \"$B64\"" > AutoSc/Resources/HelperBinary.swift
-          echo "=== Helper binary embedded ==="
 
       - name: Generate Xcode project
         run: xcodegen generate
@@ -124,11 +120,16 @@ jobs:
           brew install ldid-procursus
           APP="${{ steps.find_app.outputs.APP_PATH }}"
           BINARY="$APP/AutoSc"
-          echo "=== Signing with entitlements ==="
+          echo "=== Signing main binary ==="
           ldid -Sentitlements.plist "$BINARY"
           echo "=== Verifying entitlements ==="
           ldid -e "$BINARY"
-          echo "=== Entitlements check complete ==="
+          echo "=== Signing helper binary ==="
+          ldid -Sentitlements.plist /tmp/th 2>/dev/null || echo "No helper binary to sign"
+          B64=$(base64 -i /tmp/th | tr -d '\n')
+          mkdir -p AutoSc/Resources
+          echo "let helperBinaryB64 = \"$B64\"" > AutoSc/Resources/HelperBinary.swift
+          echo "=== Helper binary re-embedded with signature ==="
 
       - name: Generate IPA
         run: |
