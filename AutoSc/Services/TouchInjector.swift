@@ -9,6 +9,7 @@ final class TouchInjector {
     private(set) var injectionCount: Int = 0
     private(set) var hidError: String = ""
     private(set) var gsError: String = ""
+    private(set) var hidSendFailures: Int = 0
 
     private init() {
         let m = inject_method()
@@ -19,6 +20,7 @@ final class TouchInjector {
         }
         hidError = String(cString: hid_error())
         gsError = String(cString: gs_error())
+        hidSendFailures = Int(hid_send_failures())
 
         if m < 0 {
             lastError = String(cString: inject_error())

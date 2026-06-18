@@ -36,6 +36,7 @@ final class AppState: ObservableObject {
     @Published var lastError: String = ""
     @Published var hidError: String = ""
     @Published var gsError: String = ""
+    @Published var hidSendFailures: Int = 0
 
     private init() {}
 
@@ -48,6 +49,7 @@ final class AppState: ObservableObject {
 
         hidError = String(cString: hid_error())
         gsError = String(cString: gs_error())
+        hidSendFailures = Int(hid_send_failures())
 
         if injectMethod == "none" {
             lastError = String(cString: inject_error())

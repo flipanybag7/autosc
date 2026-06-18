@@ -114,6 +114,12 @@ struct StatusView: View {
                         Text("\(appState.injectionCount)")
                             .foregroundColor(.cyan)
                     }
+                    HStack {
+                        Text("Send Failures")
+                        Spacer()
+                        Text("\(appState.hidSendFailures)")
+                            .foregroundColor(appState.hidSendFailures > 0 ? .red : .green)
+                    }
                 }
 
                 Section(header: Text("Quick Tests")) {

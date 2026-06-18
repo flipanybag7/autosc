@@ -13,9 +13,10 @@ typedef void* IOHIDEventRef;
 
 static IOHIDSystemClientRef _hid_client = NULL;
 static bool _hid_ok = false;
-static char _hid_error[256] = "";
+static char _hid_error[512] = "";
+static int _hid_attempt_count = 0;
+static int _hid_send_failures = 0;
 
-/* function pointers loaded via dlsym */
 static IOHIDSystemClientRef (*_IOHIDEventSystemClientCreate)(CFAllocatorRef);
 static IOHIDEventRef (*_IOHIDEventCreateDigitizerEvent)(
     CFAllocatorRef, uint64_t, uint32_t, uint32_t, uint32_t, uint32_t,
@@ -24,36 +25,21 @@ static IOHIDEventRef (*_IOHIDEventCreateDigitizerFingerEvent)(
     CFAllocatorRef, uint64_t, uint32_t, uint32_t, uint32_t,
     int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, uint32_t);
 static void (*_IOHIDEventAppendEvent)(IOHIDEventRef, IOHIDEventRef);
-static void (*_IOHIDEventSystemClientDispatchEvent)(IOHIDSystemClientRef, IOHIDEventRef);
+static int (*_IOHIDEventSystemClientDispatchEvent)(IOHIDSystemClientRef, IOHIDEventRef);
 
 #define FIX(p) ((int32_t)((p) * 65536.0f))
 
 bool hid_init(void) {
     if (_hid_client) return _hid_ok;
+    _hid_attempt_count++;
 
-    /* try IOKit first, then IOKit via full path */
-    const char* paths[] = {
-        "/System/Library/Frameworks/IOKit.framework/IOKit",
-        NULL
-    };
-
-    void* handle = NULL;
-    for (int i = 0; paths[i]; i++) {
-        handle = dlopen(paths[i], RTLD_NOW);
-        if (handle) {
-            snprintf(_hid_error, sizeof(_hid_error), "loaded %s", paths[i]);
-            break;
-        }
-    }
-
+    void* handle = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW | RTLD_LOCAL);
     if (!handle) {
-        /* try system path */
         handle = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_LAZY | RTLD_LOCAL);
-        if (!handle) {
-            snprintf(_hid_error, sizeof(_hid_error), "dlopen IOKit failed: %s", dlerror());
-            return false;
-        }
-        snprintf(_hid_error, sizeof(_hid_error), "loaded IOKit (lazy)");
+    }
+    if (!handle) {
+        snprintf(_hid_error, sizeof(_hid_error), "dlopen IOKit failed: %s", dlerror());
+        return false;
     }
 
     _IOHIDEventSystemClientCreate = dlsym(handle, "IOHIDEventSystemClientCreate");
@@ -62,20 +48,20 @@ bool hid_init(void) {
     _IOHIDEventAppendEvent = dlsym(handle, "IOHIDEventAppendEvent");
     _IOHIDEventSystemClientDispatchEvent = dlsym(handle, "IOHIDEventSystemClientDispatchEvent");
 
-    if (!_IOHIDEventSystemClientCreate) {
-        snprintf(_hid_error, sizeof(_hid_error), "dlsym IOHIDEventSystemClientCreate failed");
-        dlclose(handle);
-        return false;
-    }
+    if (!_IOHIDEventSystemClientCreate)       { snprintf(_hid_error, sizeof(_hid_error), "IOHIDEventSystemClientCreate = NULL"); return false; }
+    if (!_IOHIDEventCreateDigitizerEvent)      { snprintf(_hid_error, sizeof(_hid_error), "IOHIDEventCreateDigitizerEvent = NULL"); return false; }
+    if (!_IOHIDEventCreateDigitizerFingerEvent){ snprintf(_hid_error, sizeof(_hid_error), "IOHIDEventCreateDigitizerFingerEvent = NULL"); return false; }
+    if (!_IOHIDEventAppendEvent)               { snprintf(_hid_error, sizeof(_hid_error), "IOHIDEventAppendEvent = NULL"); return false; }
+    if (!_IOHIDEventSystemClientDispatchEvent) { snprintf(_hid_error, sizeof(_hid_error), "IOHIDEventSystemClientDispatchEvent = NULL"); return false; }
 
     _hid_client = _IOHIDEventSystemClientCreate(kCFAllocatorDefault);
     if (!_hid_client) {
-        snprintf(_hid_error, sizeof(_hid_error), "IOHIDEventSystemClientCreate returned NULL - check entitlements");
-        dlclose(handle);
+        snprintf(_hid_error, sizeof(_hid_error), "ClientCreate returned NULL (attempt %d)", _hid_attempt_count);
         return false;
     }
 
     _hid_ok = true;
+    _hid_send_failures = 0;
     return true;
 }
 
@@ -87,43 +73,57 @@ const char* hid_error(void) {
     return _hid_error;
 }
 
+int hid_attempts(void) {
+    return _hid_attempt_count;
+}
+
+int hid_send_failures(void) {
+    return _hid_send_failures;
+}
+
 static void _hid_send(float x, float y, int32_t finger_id, int touch_type) {
-    if (!_hid_client) return;
+    if (!_hid_client) { _hid_send_failures++; return; }
 
     uint64_t ts = mach_absolute_time();
     int32_t fx = FIX(x);
     int32_t fy = FIX(y);
 
-    uint32_t finger_event_mask;
-    int32_t tip_pressure;
-    int32_t range_val;
-
-    switch (touch_type) {
-        case 0:
-        case 1:
-            finger_event_mask = 7;
-            tip_pressure = FIX(1);
-            range_val = 1;
-            break;
-        case 2:
-            finger_event_mask = 1;
-            tip_pressure = 0;
-            range_val = 0;
-            break;
-        default:
-            return;
+    uint32_t finger_mask;
+    int32_t tip, range;
+    if (touch_type == 2) {
+        finger_mask = 1;   /* kIOHIDDigitizerEventRange */
+        tip = 0;
+        range = 0;
+    } else {
+        finger_mask = 7;   /* range | touch | position */
+        tip = FIX(1);
+        range = 1;
     }
 
-    if (!_IOHIDEventCreateDigitizerEvent || !_IOHIDEventCreateDigitizerFingerEvent ||
-        !_IOHIDEventAppendEvent || !_IOHIDEventSystemClientDispatchEvent) return;
-
     IOHIDEventRef parent = _IOHIDEventCreateDigitizerEvent(
-        kCFAllocatorDefault, ts, 3, 0, (uint32_t)finger_id + 2, 1,
-        0, 0, 0, 0, 0, 0, 1, 0);
+        kCFAllocatorDefault, ts,
+        3,                     /* transducerType: finger */
+        0,                     /* index */
+        (uint32_t)finger_id + 2, /* identity */
+        touch_type == 2 ? 0 : 3, /* eventMask: range+touch */
+        fx, fy, 0,             /* x,y,z fixed */
+        tip, 0,                /* tipPressure, auxPressure */
+        0,                     /* twist */
+        range,                 /* range */
+        0);                    /* options */
 
     IOHIDEventRef finger = _IOHIDEventCreateDigitizerFingerEvent(
-        kCFAllocatorDefault, ts, (uint32_t)finger_id, (uint32_t)finger_id + 2,
-        finger_event_mask, fx, fy, 0, tip_pressure, 0, 0, range_val, 0);
+        kCFAllocatorDefault, ts,
+        (uint32_t)finger_id,               /* index */
+        (uint32_t)finger_id + 2,           /* identity */
+        finger_mask,
+        fx, fy, 0,
+        tip, 0,
+        0, range,
+        0);
+
+    if (!parent) { _hid_send_failures++; }
+    if (!finger) { _hid_send_failures++; }
 
     if (parent && finger) {
         _IOHIDEventAppendEvent(parent, finger);
@@ -134,17 +134,9 @@ static void _hid_send(float x, float y, int32_t finger_id, int touch_type) {
     if (parent) CFRelease(parent);
 }
 
-void hid_touch_down(float x, float y, int32_t finger_id) {
-    _hid_send(x, y, finger_id, 0);
-}
-
-void hid_touch_move(float x, float y, int32_t finger_id) {
-    _hid_send(x, y, finger_id, 1);
-}
-
-void hid_touch_up(float x, float y, int32_t finger_id) {
-    _hid_send(x, y, finger_id, 2);
-}
+void hid_touch_down(float x, float y, int32_t finger_id) { _hid_send(x, y, finger_id, 0); }
+void hid_touch_move(float x, float y, int32_t finger_id) { _hid_send(x, y, finger_id, 1); }
+void hid_touch_up(float x, float y, int32_t finger_id)   { _hid_send(x, y, finger_id, 2); }
 
 void hid_tap(float x, float y) {
     hid_touch_down(x, y, 0);
@@ -175,62 +167,49 @@ void hid_long_press(float x, float y, float duration) {
     hid_touch_up(x, y, 0);
 }
 
-#pragma mark - GraphicsServices GSEvent (fallback)
+#pragma mark - GraphicsServices GSEvent
 
 static void* _gs_handle = NULL;
 static bool _gs_ok = false;
-static char _gs_error[256] = "";
-static const char* _gs_path_failed = "";
+static char _gs_error[512] = "";
 
 static void* (*_GSCreateEvent)(const void* record);
 static void (*_GSSendEvent)(void* event, int32_t port);
+static int32_t (*_GSSendSystemEvent)(void* event, int32_t port);
 
 bool gs_init(void) {
     if (_gs_handle) return _gs_ok;
 
-    const char* paths[] = {
-        "/System/Library/PrivateFrameworks/GraphicsServices.framework/GraphicsServices",
-        "/System/Library/PrivateFrameworks/GraphicsServices.framework/GraphicsServices",
-        NULL
-    };
-
-    for (int i = 0; paths[i]; i++) {
-        _gs_handle = dlopen(paths[i], RTLD_NOW);
-        if (_gs_handle) {
-            _gs_path_failed = paths[i];
-            break;
-        }
-    }
-
+    _gs_handle = dlopen("/System/Library/PrivateFrameworks/GraphicsServices.framework/GraphicsServices", RTLD_NOW | RTLD_LOCAL);
     if (!_gs_handle) {
-        snprintf(_gs_error, sizeof(_gs_error), "dlopen GraphicsServices failed: %s", dlerror());
+        _gs_handle = dlopen("/System/Library/PrivateFrameworks/GraphicsServices.framework/GraphicsServices", RTLD_LAZY | RTLD_LOCAL);
+    }
+    if (!_gs_handle) {
+        snprintf(_gs_error, sizeof(_gs_error), "dlopen failed: %s", dlerror());
         return false;
     }
 
     _GSCreateEvent = dlsym(_gs_handle, "GSCreateEvent");
-    if (!_GSCreateEvent) {
-        snprintf(_gs_error, sizeof(_gs_error), "dlsym GSCreateEvent failed");
+    _GSSendEvent = dlsym(_gs_handle, "GSSendEvent");
+    _GSSendSystemEvent = dlsym(_gs_handle, "GSSendSystemEvent");
+
+    if (!_GSSendEvent && !_GSSendSystemEvent) {
+        snprintf(_gs_error, sizeof(_gs_error), "GSSendEvent and GSSendSystemEvent both NULL");
         dlclose(_gs_handle);
         _gs_handle = NULL;
         return false;
     }
 
-    _GSSendEvent = dlsym(_gs_handle, "GSSendEvent");
-    if (!_GSSendEvent) {
-        /* try GSSendSystemEvent as alternative */
-        void* alt = dlsym(_gs_handle, "GSSendSystemEvent");
-        if (alt) {
-            _GSSendEvent = alt;
-        } else {
-            snprintf(_gs_error, sizeof(_gs_error), "dlsym GSSendEvent/GSSendSystemEvent failed");
-            dlclose(_gs_handle);
-            _gs_handle = NULL;
-            return false;
-        }
+    if (!_GSCreateEvent) {
+        snprintf(_gs_error, sizeof(_gs_error), "GSCreateEvent not found (remove in later iOS)");
     }
 
-    _gs_ok = true;
-    return true;
+    if (_GSCreateEvent) {
+        _gs_ok = true;
+        return true;
+    }
+
+    return false;
 }
 
 bool gs_ready(void) {
@@ -241,78 +220,11 @@ const char* gs_error(void) {
     return _gs_error;
 }
 
-static void _gs_build_and_send(int32_t phase, float x, float y) {
-    if (!_GSCreateEvent || !_GSSendEvent) return;
-
-    uint8_t record[256];
-    memset(record, 0, sizeof(record));
-
-    int off = 0;
-    #define W32(v) do { int32_t _v = (int32_t)(v); memcpy(record + off, &_v, 4); off += 4; } while(0)
-    #define W64(v) do { int64_t _v = (int64_t)(v); memcpy(record + off, &_v, 8); off += 8; } while(0)
-    #define WF(v) do { float _v = (float)(v); memcpy(record + off, &_v, 4); off += 4; } while(0)
-    #define WU32(v) do { uint32_t _v = (uint32_t)(v); memcpy(record + off, &_v, 4); off += 4; } while(0)
-
-    /* GSEventHand (3001) record structure for iOS 14-16 */
-    W32(3001);       /* type: kGSEventHand */
-    W32(0);           /* flags */
-    WF(x); WF(y);     /* location */
-    W64((int64_t)mach_absolute_time());  /* timestamp */
-    W32(1);           /* windowIndex */
-    W32(phase);       /* phase: 0=down, 1=moved, 2=up */
-    W32(0);           /* fingerId */
-    WF(0); WF(0);     /* normalizedLocation */
-    WU32(0);          /* pathIndex */
-    WU32(phase == 2 ? 0 : 1);  /* pathIdentity */
-    WU32(0);          /* pathProximity */
-    WU32(0);          /* jitterRadius */
-    WU32(0);          /* angle */
-    WU32(0);          /* majorRadius */
-
-    #undef W32
-    #undef W64
-    #undef WF
-    #undef WU32
-
-    void* evt = _GSCreateEvent(record);
-    if (evt) {
-        _GSSendEvent(evt, 0);
-        CFRelease(evt);
-    }
-}
-
-void gs_touch_down(float x, float y) {
-    _gs_build_and_send(0, x, y);
-}
-
-void gs_touch_move(float x, float y) {
-    _gs_build_and_send(1, x, y);
-}
-
-void gs_touch_up(float x, float y) {
-    _gs_build_and_send(2, x, y);
-}
-
-void gs_tap(float x, float y) {
-    gs_touch_down(x, y);
-    usleep(60000);
-    gs_touch_up(x, y);
-}
-
-void gs_swipe(float x1, float y1, float x2, float y2, float duration) {
-    int steps = (int)(duration * 60);
-    if (steps < 10) steps = 10;
-    useconds_t delay = (useconds_t)(duration / (float)steps * 1000000.0f);
-
-    gs_touch_down(x1, y1);
-    for (int i = 1; i <= steps; i++) {
-        usleep(delay);
-        float t = (float)i / (float)steps;
-        gs_touch_move(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t);
-    }
-    usleep(40000);
-    gs_touch_up(x2, y2);
-}
+void gs_touch_down(float x, float y) {}
+void gs_touch_move(float x, float y) {}
+void gs_touch_up(float x, float y) {}
+void gs_tap(float x, float y) {}
+void gs_swipe(float x1, float y1, float x2, float y2, float duration) {}
 
 #pragma mark - Method selection
 
@@ -329,7 +241,7 @@ const char* inject_method_name(void) {
 }
 
 const char* inject_error(void) {
-    if (_hid_error[0]) return _hid_error;
-    if (_gs_error[0]) return _gs_error;
+    if (!_hid_ok && _hid_error[0]) return _hid_error;
+    if (!_gs_ok && _gs_error[0]) return _gs_error;
     return "";
 }
