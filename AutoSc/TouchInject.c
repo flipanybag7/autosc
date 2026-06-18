@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <spawn.h>
-#include <sys/access.h>
+#include <unistd.h>
 
 #pragma mark - C Helper Binary (primary, proven working with sudo)
 
