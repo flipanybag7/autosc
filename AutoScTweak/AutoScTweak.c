@@ -161,31 +161,33 @@ typedef struct {
     float duration;    /* for swipe */
 } TouchMessage;
 
+/* Lazy init: called on first touch command */
+static bool _tweak_initialized = false;
+
+static void ensure_init(void) {
+    if (_tweak_initialized) return;
+    _tweak_initialized = true;
+    bool hid_ok = init_hid();
+    bool gs_ok = init_gs();
+    fprintf(stderr, "[AutoScTweak] Initialized. HID=%s GS=%s\n",
+            hid_ok ? "OK" : "FAIL", gs_ok ? "OK" : "FAIL");
+}
+
 static CFDataRef port_callback(CFMessagePortRef local, SInt32 msgid, CFDataRef data, void* info) {
+    ensure_init();
     if (!data) return NULL;
     CFIndex len = CFDataGetLength(data);
     if (len < sizeof(TouchMessage)) return NULL;
-
     TouchMessage msg;
     CFDataGetBytes(data, CFRangeMake(0, sizeof(msg)), (UInt8*)&msg);
     if (msg.magic != 0x41544F53) return NULL;
-
     switch (msg.type) {
-        case 0: /* tap */
-            send_hid(msg.x, msg.y, 0);
-            usleep(60000);
-            send_hid(msg.x, msg.y, 2);
+        case 0: send_hid(msg.x, msg.y, 0); usleep(60000); send_hid(msg.x, msg.y, 2); break;
+        case 1: send_hid(msg.x, msg.y, 0); break;
+        case 2: send_hid(msg.x, msg.y, 1); break;
+        case 3: send_hid(msg.x, msg.y, 2);
             break;
-        case 1: /* fingerDown */
-            send_hid(msg.x, msg.y, 0);
-            break;
-        case 2: /* fingerMove */
-            send_hid(msg.x, msg.y, 1);
-            break;
-        case 3: /* fingerUp */
-            send_hid(msg.x, msg.y, 2);
-            break;
-        case 4: /* swipe */
+        case 4:
         {
             int steps = (int)(msg.duration * 60);
             if (steps < 5) steps = 5;
@@ -209,19 +211,7 @@ static CFDataRef port_callback(CFMessagePortRef local, SInt32 msgid, CFDataRef d
 
 __attribute__((constructor))
 static void tweak_init() {
-    /* Initialize both HID and GS methods */
-    bool hid_ok = init_hid();
-    bool gs_ok = init_gs();
-
-    fprintf(stderr, "[AutoScTweak] Loaded into SpringBoard. HID=%s GS=%s\n",
-            hid_ok ? "OK" : "FAIL", gs_ok ? "OK" : "FAIL");
-
-    /* If no injection method, fallback to GS event (should work in SpringBoard) */
-    if (!hid_ok && gs_ok) {
-        fprintf(stderr, "[AutoScTweak] Using GSEvent fallback\n");
-    }
-
-    /* Register CFMessagePort for app communication */
+    /* Only register CFMessagePort - no HID/GS init until first message */
     CFMessagePortRef port = CFMessagePortCreateLocal(
         kCFAllocatorDefault,
         CFSTR(AUTOSC_PORT_NAME),
@@ -235,8 +225,8 @@ static void tweak_init() {
             CFRunLoopAddSource(CFRunLoopGetMain(), source, kCFRunLoopDefaultMode);
             CFRelease(source);
         }
-        fprintf(stderr, "[AutoScTweak] Listening on port " AUTOSC_PORT_NAME "\n");
+        fprintf(stderr, "[AutoScTweak] Listening on " AUTOSC_PORT_NAME "\n");
     } else {
-        fprintf(stderr, "[AutoScTweak] Failed to create message port\n");
+        fprintf(stderr, "[AutoScTweak] Port creation failed\n");
     }
 }

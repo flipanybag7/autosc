@@ -9,5 +9,7 @@
             <string>SpringBoard</string>
         </array>
     </dict>
+    <key>Library</key>
+    <string>/var/jb/Library/TweakInject/AutoScTweak.dylib</string>
 </dict>
 </plist>
