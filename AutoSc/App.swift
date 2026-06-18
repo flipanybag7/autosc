@@ -47,6 +47,8 @@ final class AppState: ObservableObject {
     @Published var userdevError: String = ""
     @Published var cgeventAvailable: Bool = false
     @Published var cgeventError: String = ""
+    @Published var helperReady: Bool = false
+    @Published var helperError: String = ""
 
     private init() {}
 
@@ -64,6 +66,8 @@ final class AppState: ObservableObject {
         cgeventAvailable = cgevent_ready()
         cgeventError = String(cString: cgevent_error())
         hidSendFailures = Int(hid_send_failures())
+        helperReady = inj.helperReady
+        helperError = inj.helperError
 
         if injectMethod == "none" {
             lastError = String(cString: inject_error())

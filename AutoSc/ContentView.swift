@@ -141,6 +141,22 @@ struct StatusView: View {
                         }
                     }
                     HStack {
+                        Text("Helper Binary")
+                        Spacer()
+                        Text(appState.helperReady ? "Ready" : "Not Embedded")
+                            .foregroundColor(appState.helperReady ? .green : .orange)
+                    }
+                    if !appState.helperError.isEmpty {
+                        HStack {
+                            Text("Helper Detail")
+                            Spacer()
+                            Text(appState.helperError)
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+                    HStack {
                         Text("Events Injected")
                         Spacer()
                         Text("\(appState.injectionCount)")

@@ -14,11 +14,17 @@ final class TouchInjector {
     private(set) var cgeventError: String = ""
     private(set) var hidSendFailures: Int = 0
     private(set) var hidDispatchErr: Int = 0
+    private(set) var helperReady: Bool = false
+    private(set) var helperError: String = ""
 
     private init() {
         let w = UIScreen.main.bounds.width
         let h = UIScreen.main.bounds.height
         userdev_set_screen_size(Float(w), Float(h))
+
+        let helperErr = HelperExecutor.shared.prepare()
+        helperReady = HelperExecutor.shared.isReady
+        helperError = helperErr
 
         let m = inject_method()
         switch m {
@@ -35,9 +41,11 @@ final class TouchInjector {
         hidSendFailures = Int(hid_send_failures())
         hidDispatchErr = Int(hid_dispatch_err())
 
-        if m < 0 {
+        if m < 0 && !helperReady {
             lastError = String(cString: inject_error())
             print("[TouchInjector] Init: \(lastError)")
+        } else if helperReady {
+            print("[TouchInjector] Helper binary ready")
         } else {
             print("[TouchInjector] Using \(method)")
         }
@@ -45,12 +53,18 @@ final class TouchInjector {
 
     var canInject: Bool {
         let m = inject_method()
-        let ok = m >= 0
+        let ok = m >= 0 || helperReady
         if !ok { lastError = String(cString: inject_error()) }
         return ok
     }
 
     private func dispatchTouch(at point: CGPoint, fingerId: Int32 = 0, phase: Int) {
+        // Helper binary takes priority when available
+        if helperReady {
+            let _ = HelperExecutor.shared.sendTouch(
+                type: Int32(phase), x: Float(point.x), y: Float(point.y), fingerId: fingerId)
+            return
+        }
         let m = inject_method()
         switch m {
         case 1: // GraphicsServices (GSEvent via GSSendEvent)
@@ -65,7 +79,7 @@ final class TouchInjector {
             userdev_touch(Float(point.x), Float(point.y), fingerId, Int32(phase))
         case 3: // CGEvent
             if phase == 0 { cgevent_touch_down(Float(point.x), Float(point.y)) }
-            else if phase == 1 { /* cgevent doesn't support move directly, handled by swipe */ }
+            else if phase == 1 { }
             else { cgevent_touch_up(Float(point.x), Float(point.y)) }
         default:
             break
@@ -80,6 +94,12 @@ final class TouchInjector {
 
     func touchMove(to point: CGPoint, fingerId: Int32 = 0) {
         guard canInject else { return }
+        if helperReady {
+            let _ = HelperExecutor.shared.sendTouch(
+                type: 1, x: Float(point.x), y: Float(point.y), fingerId: fingerId)
+            injectionCount += 1
+            return
+        }
         let m = inject_method()
         switch m {
         case 1: gs_touch_move(Float(point.x), Float(point.y))
