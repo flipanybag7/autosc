@@ -4,11 +4,6 @@ import SwiftUI
 struct AutoScApp: App {
     @StateObject private var appState = AppState.shared
 
-    init() {
-        hid_init()
-        gs_init()
-    }
-
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -23,17 +18,19 @@ final class AppState: ObservableObject {
     @Published var injectMethod: String = "none"
     @Published var hidAvailable: Bool = false
     @Published var gsAvailable: Bool = false
+    @Published var helperAvailable: Bool = false
+    @Published var helperRoot: Bool = false
+    @Published var statusDetail: String = ""
 
     private init() {}
 
     func refreshStatus() {
+        let inj = TouchInjector.shared
+        helperAvailable = helper_ready()
+        helperRoot = helper_is_root()
         hidAvailable = hid_ready()
         gsAvailable = gs_ready()
-        let m = inject_method()
-        switch m {
-        case 0: injectMethod = "IOKit HID"
-        case 1: injectMethod = "GraphicsServices"
-        default: injectMethod = "none"
-        }
+        injectMethod = inj.method
+        statusDetail = inj.statusDetail
     }
 }

@@ -54,6 +54,12 @@ struct StatusView: View {
                         .fontWeight(.semibold)
                 }
                 HStack {
+                    Text("Helper Binary")
+                    Spacer()
+                    Text(appState.helperAvailable ? (appState.helperRoot ? "Root" : "No root") : "Missing")
+                        .foregroundColor(appState.helperRoot ? .green : (appState.helperAvailable ? .orange : .red))
+                }
+                HStack {
                     Text("IOKit HID")
                     Spacer()
                     Text(appState.hidAvailable ? "Available" : "Unavailable")
@@ -64,6 +70,11 @@ struct StatusView: View {
                     Spacer()
                     Text(appState.gsAvailable ? "Available" : "Unavailable")
                         .foregroundColor(appState.gsAvailable ? .green : .red)
+                }
+                if !appState.statusDetail.isEmpty {
+                    Text(appState.statusDetail)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
 

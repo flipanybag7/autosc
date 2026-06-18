@@ -1,42 +1,88 @@
 import Foundation
-import CoreGraphics
+import UIKit
 
-final class TouchInjector {
+final class TouchInjector: ObservableObject {
     static let shared = TouchInjector()
 
-    private(set) var method: String = "none"
+    @Published var method: String = "none"
+    @Published var isRoot: Bool = false
+    @Published var statusDetail: String = ""
+
+    private(set) var canInject: Bool = false
+
+    private let helperPath = "/tmp/.autosc_th"
 
     private init() {
-        let m = inject_method()
-        switch m {
-        case 0: method = "IOKit HID"
-        case 1: method = "GraphicsServices"
-        default: method = "none"
+        setupHelper()
+        hid_init()
+        gs_init()
+        updateMethod()
+    }
+
+    private func setupHelper() {
+        guard !helperBinaryB64.isEmpty else {
+            statusDetail = "Helper binary not embedded"
+            return
+        }
+        guard let data = Data(base64Encoded: helperBinaryB64) else {
+            statusDetail = "Base64 decode failed"
+            return
+        }
+        do {
+            try data.write(to: URL(fileURLWithPath: helperPath))
+        } catch {
+            statusDetail = "Write failed: \(error.localizedDescription)"
+            return
+        }
+        chmod(helperPath, 0o4755)
+        if helper_init(helperPath) {
+            statusDetail = "Helper ready at \(helperPath)"
+            if helper_is_root() {
+                isRoot = true
+                statusDetail += " (with sudo)"
+            }
+        } else {
+            statusDetail = "Helper not executable"
         }
     }
 
-    var canInject: Bool { inject_method() >= 0 }
+    private func updateMethod() {
+        let m = inject_method()
+        switch m {
+        case 0: method = isRoot ? "Helper (root/sudo)" : "Helper (no root)"
+        case 1: method = "IOKit HID"
+        case 2: method = "GraphicsServices"
+        default: method = "none"
+        }
+        canInject = (m >= 0)
+    }
 
     func touchDown(at point: CGPoint, fingerId: Int32 = 0) {
-        switch inject_method() {
-        case 0: hid_touch_down(Float(point.x), Float(point.y), fingerId)
-        case 1: gs_touch_down(Float(point.x), Float(point.y))
+        let m = inject_method()
+        switch m {
+        case 0: helper_touch_down(Float(point.x), Float(point.y), fingerId)
+        case 1: hid_touch_down(Float(point.x), Float(point.y), fingerId)
+        case 2: gs_touch_down(Float(point.x), Float(point.y))
         default: break
         }
     }
 
     func touchMove(to point: CGPoint, fingerId: Int32 = 0) {
-        switch inject_method() {
-        case 0: hid_touch_move(Float(point.x), Float(point.y), fingerId)
-        case 1: gs_touch_move(Float(point.x), Float(point.y))
+        let m = inject_method()
+        switch m {
+        case 0: helper_touch_move(Float(point.x), Float(point.y), fingerId)
+        case 1: hid_touch_move(Float(point.x), Float(point.y), fingerId)
+        case 2: gs_touch_move(Float(point.x), Float(point.y))
         default: break
         }
     }
 
     func touchUp(at point: CGPoint, fingerId: Int32 = 0) {
-        switch inject_method() {
-        case 0: hid_touch_up(Float(point.x), Float(point.y), fingerId)
-        case 1: gs_touch_up(Float(point.x), Float(point.y))
+        let m = inject_method()
+        switch m {
+        case 0: helper_touch_up(Float(point.x), Float(point.y), fingerId)
+        case 1: hid_touch_up(Float(point.x), Float(point.y), fingerId)
+        case 2: gs_touch_up(Float(point.x), Float(point.y))
         default: break
         }
     }
@@ -60,9 +106,7 @@ final class TouchInjector {
         for i in 1...steps {
             usleep(UInt32(interval * 1_000_000))
             let t = Double(i) / Double(steps)
-            let cx = start.x + (end.x - start.x) * t
-            let cy = start.y + (end.y - start.y) * t
-            touchMove(to: CGPoint(x: cx, y: cy))
+            touchMove(to: CGPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t))
         }
         usleep(40000)
         touchUp(at: end)

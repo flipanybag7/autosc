@@ -21,6 +21,59 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
 
+      - name: Compile touch helper binary
+        run: |
+          cat > /tmp/th.c << 'CEOF'
+          #include <CoreFoundation/CoreFoundation.h>
+          #include <mach/mach_time.h>
+          #include <stdlib.h>
+          #include <stdio.h>
+          #include <string.h>
+          #include <unistd.h>
+          typedef void* IOHIDSystemRef;
+          typedef void* IOHIDEventRef;
+          extern IOHIDSystemRef IOHIDEventSystemClientCreate(CFAllocatorRef);
+          extern IOHIDEventRef IOHIDEventCreateDigitizerEvent(CFAllocatorRef, uint64_t, uint32_t, uint32_t, uint32_t, uint32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, uint32_t);
+          extern IOHIDEventRef IOHIDEventCreateDigitizerFingerEvent(CFAllocatorRef, uint64_t, uint32_t, uint32_t, uint32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, uint32_t);
+          extern void IOHIDEventAppendEvent(IOHIDEventRef, IOHIDEventRef);
+          extern void IOHIDEventSystemClientDispatchEvent(IOHIDSystemRef, IOHIDEventRef);
+          #define FIX(p) ((int32_t)((p)*65536))
+          int main(int argc, char** argv) {
+              if (argc < 5) { fprintf(stderr, "Usage: th <type> <x> <y> [fingerId]\n"); return 1; }
+              int type = atoi(argv[1]);
+              float x = atof(argv[2]);
+              float y = atof(argv[3]);
+              int32_t fid = argc > 4 ? atoi(argv[4]) : 0;
+              uint64_t ts = mach_absolute_time();
+              IOHIDSystemRef cl = IOHIDEventSystemClientCreate(NULL);
+              if (!cl) { fprintf(stderr, "Failed to create HID client\n"); return 2; }
+              uint32_t finger_mask;
+              int32_t tip, range;
+              if (type == 2) { finger_mask = 1; tip = 0; range = 0; }
+              else { finger_mask = 7; tip = FIX(1); range = 1; }
+              IOHIDEventRef parent = IOHIDEventCreateDigitizerEvent(NULL, ts, 3, 0, (uint32_t)(fid+2), 1, 0, 0, 0, 0, 0, 0, range, 0);
+              IOHIDEventRef finger = IOHIDEventCreateDigitizerFingerEvent(NULL, ts, (uint32_t)fid, (uint32_t)(fid+2), finger_mask, FIX(x), FIX(y), 0, tip, 0, 0, range, 0);
+              if (parent && finger) {
+                  IOHIDEventAppendEvent(parent, finger);
+                  IOHIDEventSystemClientDispatchEvent(cl, parent);
+              }
+              if (finger) CFRelease(finger);
+              if (parent) CFRelease(parent);
+              CFRelease(cl);
+              return 0;
+          }
+          CEOF
+          clang -arch arm64 \
+            -isysroot /Applications/Xcode_15.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS17.5.sdk \
+            -framework IOKit -framework CoreFoundation \
+            -o /tmp/th /tmp/th.c
+          echo "=== Helper binary compiled ==="
+          ls -la /tmp/th
+          B64=$(base64 -i /tmp/th | tr -d '\n')
+          mkdir -p AutoSc/Resources
+          echo "let helperBinaryB64 = \"$B64\"" > AutoSc/Resources/HelperBinary.swift
+          echo "=== Helper binary embedded ==="
+
       - name: Generate Xcode project
         run: xcodegen generate
 
