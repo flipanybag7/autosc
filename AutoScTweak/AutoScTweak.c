@@ -2,6 +2,7 @@
    Listens for touch commands from the AutoSc app via CFMessagePort */
 
 #include <CoreFoundation/CoreFoundation.h>
+#include <dispatch/dispatch.h>
 #include <mach/mach_time.h>
 #include <dlfcn.h>
 #include <string.h>
@@ -209,24 +210,20 @@ static CFDataRef port_callback(CFMessagePortRef local, SInt32 msgid, CFDataRef d
     return NULL;
 }
 
+static void setup_port(void* _unused) {
+    CFMessagePortRef port = CFMessagePortCreateLocal(
+        kCFAllocatorDefault, CFSTR(AUTOSC_PORT_NAME), port_callback, NULL, NULL);
+    if (!port) { fprintf(stderr, "[AutoScTweak] Port create failed\n"); return; }
+    CFRunLoopSourceRef source = CFMessagePortCreateRunLoopSource(kCFAllocatorDefault, port, 0);
+    if (source) {
+        CFRunLoopAddSource(CFRunLoopGetCurrent(), source, kCFRunLoopDefaultMode);
+        CFRelease(source);
+    }
+    fprintf(stderr, "[AutoScTweak] Listening on " AUTOSC_PORT_NAME "\n");
+}
+
 __attribute__((constructor))
 static void tweak_init() {
-    /* Only register CFMessagePort - no HID/GS init until first message */
-    CFMessagePortRef port = CFMessagePortCreateLocal(
-        kCFAllocatorDefault,
-        CFSTR(AUTOSC_PORT_NAME),
-        port_callback,
-        NULL,
-        NULL);
-
-    if (port) {
-        CFRunLoopSourceRef source = CFMessagePortCreateRunLoopSource(kCFAllocatorDefault, port, 0);
-        if (source) {
-            CFRunLoopAddSource(CFRunLoopGetMain(), source, kCFRunLoopDefaultMode);
-            CFRelease(source);
-        }
-        fprintf(stderr, "[AutoScTweak] Listening on " AUTOSC_PORT_NAME "\n");
-    } else {
-        fprintf(stderr, "[AutoScTweak] Port creation failed\n");
-    }
+    /* Defer port setup to the first run loop cycle to ensure run loop is ready */
+    dispatch_async_f(dispatch_get_main_queue(), NULL, (void(*)(void*))setup_port);
 }
