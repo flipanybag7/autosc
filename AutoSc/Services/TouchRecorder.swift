@@ -20,6 +20,7 @@ final class TouchRecorder: ObservableObject {
     private var timer: Timer?
     private var longPressTimer: Timer?
     private var longPressTriggered = false
+    private var moveDistance: CGFloat = 0
 
     func startRecording() {
         actions.removeAll()
@@ -27,6 +28,7 @@ final class TouchRecorder: ObservableObject {
         startTime = Date()
         lastActionTime = Date()
         longPressTriggered = false
+        moveDistance = 0
         startElapsedTimer()
     }
 
@@ -36,7 +38,8 @@ final class TouchRecorder: ObservableObject {
         timer = nil
         longPressTimer?.invalidate()
         longPressTimer = nil
-        return actions
+        let result = actions
+        return result
     }
 
     func recordTouchBegan(at point: CGPoint) {
@@ -45,19 +48,26 @@ final class TouchRecorder: ObservableObject {
         touchStartPoint = point
         touchMoved = false
         longPressTriggered = false
+        moveDistance = 0
 
         longPressTimer?.invalidate()
         longPressTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
             guard let self = self, self.state == .recording else { return }
             self.longPressTriggered = true
+            print("[Recorder] Long press triggered at \(point)")
         }
+        print("[Recorder] Touch began at \(point)")
     }
 
     func recordTouchMoved(to point: CGPoint) {
         guard state == .recording, let start = touchStartPoint else { return }
         let dx = abs(point.x - start.x)
         let dy = abs(point.y - start.y)
-        if dx > 10 || dy > 10 {
+        moveDistance = sqrt(dx * dx + dy * dy)
+        if moveDistance > 5 {
+            if !touchMoved {
+                print("[Recorder] Swipe detected — moved \(moveDistance) pts from start")
+            }
             touchMoved = true
             longPressTimer?.invalidate()
             longPressTimer = nil
@@ -75,16 +85,20 @@ final class TouchRecorder: ObservableObject {
         if longPressTriggered {
             let duration = Date().timeIntervalSince(touchStartTime ?? Date())
             actions.append(.longPress(at: start, duration: duration, delay: delay))
+            print("[Recorder] Recorded long press (\(duration)s) at \(start)")
         } else if touchMoved {
             let duration = Date().timeIntervalSince(touchStartTime ?? Date())
             actions.append(.swipe(from: start, to: point, duration: duration, delay: delay))
+            print("[Recorder] Recorded swipe (\(Int(moveDistance))pts, \(String(format: "%.2f", duration))s) \(start) -> \(point)")
         } else {
             actions.append(.tap(at: point, delay: delay))
+            print("[Recorder] Recorded tap at \(point)")
         }
 
         touchStartPoint = nil
         touchStartTime = nil
         longPressTriggered = false
+        moveDistance = 0
     }
 
     private func delaySinceLastAction() -> TimeInterval {

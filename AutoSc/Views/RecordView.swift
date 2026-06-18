@@ -1,6 +1,9 @@
 import SwiftUI
 import AVFoundation
 
+let AutoScStopRecordingNotification = Notification.Name("AutoScStopRecording")
+let AutoScStopPlayingNotification = Notification.Name("AutoScStopPlaying")
+
 struct RecordView: View {
     @StateObject private var recorder = TouchRecorder()
     @StateObject private var player = MacroPlayer()
@@ -8,36 +11,66 @@ struct RecordView: View {
     @State private var repeatCount = 1
     @State private var isRecording = false
     @State private var isPlaying = false
+    @State private var showTestSwipes = false
 
     var body: some View {
         ZStack {
+            mainContent
+                .allowsHitTesting(!isRecording)
+
             if isRecording {
-                TouchCaptureOverlay(
-                    recorder: recorder,
-                    onCancel: { stopRecording() }
-                )
-            } else {
-                VStack(spacing: 16) {
-                    Spacer().frame(height: 20)
+                TouchCaptureOverlay(recorder: recorder)
+                    .ignoresSafeArea()
 
-                    statusSection
-
-                    actionButtons
-
-                    if !recorder.actions.isEmpty && !isRecording {
-                        actionList
-                    } else {
+                VStack {
+                    HStack {
+                        Circle().fill(Color.red).frame(width: 12, height: 12)
+                        Text("REC \(String(format: "%.1fs", recorder.elapsedTime))")
+                            .font(.headline).foregroundColor(.white)
+                        Text("(\(recorder.actions.count))")
+                            .font(.subheadline).foregroundColor(.white.opacity(0.7))
                         Spacer()
-                        Text("Tap Record, then touch the screen.\nSwipes and taps will be captured with visible paths.")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                        Spacer()
+                        Button(action: stopRecording) {
+                            Text("Stop").font(.headline).foregroundColor(.white)
+                                .padding(.horizontal, 20).padding(.vertical, 10)
+                                .background(Color.red).cornerRadius(10)
+                        }
                     }
+                    .padding()
+                    .background(Color.black.opacity(0.85))
+                    .cornerRadius(14)
+                    .padding(.horizontal).padding(.top, 50)
+                    Spacer()
                 }
-                .padding()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: AutoScStopRecordingNotification)) { _ in
+            if isRecording { stopRecording() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AutoScStopPlayingNotification)) { _ in
+            if isPlaying { stopPlaying() }
+        }
+    }
+
+    private var mainContent: some View {
+        VStack(spacing: 16) {
+            Spacer().frame(height: 20)
+            statusSection
+            actionButtons
+
+            if isRecording || isPlaying {
+                Spacer()
+            } else if !recorder.actions.isEmpty {
+                actionList
+            } else {
+                Spacer()
+                Text("Tap Record, then touch the screen.\nSwipes and taps will be captured.")
+                    .font(.subheadline).foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                Spacer()
+            }
+        }
+        .padding()
     }
 
     private var statusSection: some View {
@@ -49,27 +82,21 @@ struct RecordView: View {
                 Text(isRecording ? "Recording \(String(format: "%.1fs", recorder.elapsedTime))" :
                      isPlaying ? "Playing \(Int(player.progress * 100))%" :
                      "Idle")
-                    .font(.headline)
-                    .foregroundColor(.white)
+                    .font(.headline).foregroundColor(.white)
                 Spacer()
                 Text(TouchInjector.shared.method)
                     .font(.caption)
                     .foregroundColor(TouchInjector.shared.canInject ? .green : .red)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.white.opacity(0.1))
-                    .cornerRadius(6)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(Color.white.opacity(0.1)).cornerRadius(6)
             }
-
             if isRecording {
-                Text("\(recorder.actions.count) actions captured — tap Stop when done")
-                    .font(.caption)
-                    .foregroundColor(.orange)
+                Text("\(recorder.actions.count) actions captured")
+                    .font(.caption).foregroundColor(.orange)
             }
         }
         .padding()
-        .background(Color.white.opacity(0.05))
-        .cornerRadius(12)
+        .background(Color.white.opacity(0.05)).cornerRadius(12)
     }
 
     private var actionButtons: some View {
@@ -110,22 +137,30 @@ struct RecordView: View {
                 }
             }
 
-            if !recorder.actions.isEmpty && !isRecording && !isPlaying {
-                HStack(spacing: 12) {
+            HStack(spacing: 12) {
+                Button(action: { showTestSwipes = true }) {
+                    Label("Test 10 Swipes", systemImage: "arrow.triangle.2.circlepath")
+                        .font(.subheadline).foregroundColor(.cyan)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(Color.white.opacity(0.08)).cornerRadius(8)
+                }
+                .disabled(!TouchInjector.shared.canInject)
+                .sheet(isPresented: $showTestSwipes) {
+                    TestSwipeView()
+                }
+
+                Spacer()
+
+                if !recorder.actions.isEmpty && !isRecording && !isPlaying {
                     Stepper("Repeat: \(repeatCount)x", value: $repeatCount, in: 1...100)
                         .foregroundColor(.white)
-                    Spacer()
-                    Button("Save") {
-                        saveMacro()
-                    }
-                    .foregroundColor(.cyan)
-                    Button("Clear") {
-                        recorder.actions.removeAll()
-                    }
-                    .foregroundColor(.red)
+                    Button("Save") { saveMacro() }
+                        .foregroundColor(.cyan)
+                    Button("Clear") { recorder.actions.removeAll() }
+                        .foregroundColor(.red)
                 }
-                .font(.subheadline)
             }
+            .font(.subheadline)
         }
     }
 
@@ -139,8 +174,7 @@ struct RecordView: View {
                 .listRowBackground(Color.white.opacity(0.05))
             }
         }
-        .listStyle(PlainListStyle())
-        .cornerRadius(12)
+        .listStyle(PlainListStyle()).cornerRadius(12)
     }
 
     @ViewBuilder
@@ -161,7 +195,7 @@ struct RecordView: View {
                 Image(systemName: "hand.draw").foregroundColor(.green)
                 Text("Swipe").foregroundColor(.white)
                 if let s = action.startPoint, let e = action.endPoint {
-                    Text("(\(Int(s.x)),\(Int(s.y)))→(\(Int(e.x)),\(Int(e.y)))").font(.caption).foregroundColor(.secondary)
+                    Text("(\(Int(s.x)),\(Int(s.y)))->(\(Int(e.x)),\(Int(e.y)))").font(.caption).foregroundColor(.secondary)
                 }
                 Spacer()
                 Text("\(String(format: "%.2f", action.duration))s").font(.caption2).foregroundColor(.secondary)
@@ -217,43 +251,103 @@ struct RecordView: View {
     }
 }
 
+// MARK: - Touch Capture Overlay
+
 struct TouchCaptureOverlay: UIViewRepresentable {
     @ObservedObject var recorder: TouchRecorder
-    var onCancel: () -> Void
 
     func makeUIView(context: Context) -> TouchCaptureUIView {
         let view = TouchCaptureUIView()
         view.recorder = recorder
-        view.onCancel = onCancel
         return view
     }
 
     func updateUIView(_ uiView: TouchCaptureUIView, context: Context) {
         uiView.recorder = recorder
-        uiView.onCancel = onCancel
     }
 }
 
 final class TouchCaptureUIView: UIView {
     weak var recorder: TouchRecorder?
-    var onCancel: (() -> Void)?
     private var currentPath: [CGPoint] = []
     private var completedPaths: [[CGPoint]] = []
     private var currentLayer: CAShapeLayer?
     private var completedLayers: [CAShapeLayer] = []
     private var startPoint: CGPoint?
+    private var statusBar: UIView!
+    private var stopBtn: UIButton!
+    private var recLabel: UILabel!
+    private var actionsLabel: UILabel!
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = UIColor.black.withAlphaComponent(0.3)
-        isMultipleTouchEnabled = false
+        backgroundColor = UIColor.clear
+        isMultipleTouchEnabled = true
+        setupStatusBar()
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
+    private func setupStatusBar() {
+        let sb = UIView(frame: CGRect(x: 12, y: 50, width: UIScreen.main.bounds.width - 24, height: 50))
+        sb.backgroundColor = UIColor.black.withAlphaComponent(0.85)
+        sb.layer.cornerRadius = 14
+        sb.autoresizingMask = [.flexibleWidth, .flexibleBottomMargin]
+
+        let dot = UIView(frame: CGRect(x: 12, y: 19, width: 12, height: 12))
+        dot.backgroundColor = .systemRed
+        dot.layer.cornerRadius = 6
+        sb.addSubview(dot)
+
+        recLabel = UILabel(frame: CGRect(x: 32, y: 0, width: 100, height: 50))
+        recLabel.text = "REC 0.0s"
+        recLabel.font = .boldSystemFont(ofSize: 16)
+        recLabel.textColor = .white
+        sb.addSubview(recLabel)
+
+        actionsLabel = UILabel(frame: CGRect(x: 140, y: 0, width: 80, height: 50))
+        actionsLabel.text = "(0)"
+        actionsLabel.font = .systemFont(ofSize: 14)
+        actionsLabel.textColor = UIColor.white.withAlphaComponent(0.7)
+        sb.addSubview(actionsLabel)
+
+        stopBtn = UIButton(frame: CGRect(x: sb.frame.width - 82, y: 8, width: 70, height: 34))
+        stopBtn.setTitle("Stop", for: .normal)
+        stopBtn.titleLabel?.font = .boldSystemFont(ofSize: 15)
+        stopBtn.backgroundColor = .systemRed
+        stopBtn.layer.cornerRadius = 8
+        stopBtn.addTarget(self, action: #selector(stopTapped), for: .touchUpInside)
+        sb.addSubview(stopBtn)
+
+        statusBar = sb
+        addSubview(sb)
+    }
+
+    @objc private func stopTapped() {
+        NotificationCenter.default.post(name: AutoScStopRecordingNotification, object: nil)
+    }
+
+    func updateStatusBar(elapsed: TimeInterval, count: Int) {
+        DispatchQueue.main.async {
+            self.recLabel?.text = "REC \(String(format: "%.1fs", elapsed))"
+            self.actionsLabel?.text = "(\(count))"
+        }
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        if let sb = statusBar {
+            let converted = convert(point, to: sb)
+            if sb.bounds.contains(converted) {
+                return sb.hitTest(converted, with: event)
+            }
+        }
+        return self
+    }
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first else { return }
         let point = touch.location(in: self)
+        if let sb = statusBar, sb.frame.contains(point) { return }
         startPoint = point
         currentPath = [point]
         recorder?.recordTouchBegan(at: point)
@@ -265,6 +359,9 @@ final class TouchCaptureUIView: UIView {
         currentPath.append(point)
         recorder?.recordTouchMoved(to: point)
         drawCurrentPath()
+        if let recorder = recorder {
+            updateStatusBar(elapsed: recorder.elapsedTime, count: recorder.actions.count)
+        }
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -285,6 +382,17 @@ final class TouchCaptureUIView: UIView {
         currentLayer?.removeFromSuperlayer()
         currentLayer = nil
         startPoint = nil
+
+        if let recorder = recorder {
+            updateStatusBar(elapsed: recorder.elapsedTime, count: recorder.actions.count)
+        }
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        currentPath = []
+        currentLayer?.removeFromSuperlayer()
+        currentLayer = nil
+        startPoint = nil
     }
 
     private func drawCurrentPath() {
@@ -299,11 +407,13 @@ final class TouchCaptureUIView: UIView {
         }
         layer.path = path.cgPath
         layer.strokeColor = UIColor.cyan.cgColor
-        layer.lineWidth = 4
+        layer.lineWidth = 5
         layer.fillColor = nil
         layer.lineCap = .round
         layer.lineJoin = .round
-        layer.opacity = 0.9
+        layer.shadowColor = UIColor.cyan.cgColor
+        layer.shadowOpacity = 0.5
+        layer.shadowRadius = 4
         self.layer.addSublayer(layer)
         currentLayer = layer
     }
@@ -319,11 +429,11 @@ final class TouchCaptureUIView: UIView {
         }
         layer.path = path.cgPath
         layer.strokeColor = UIColor.systemGreen.cgColor
-        layer.lineWidth = 3
+        layer.lineWidth = 4
         layer.fillColor = nil
         layer.lineCap = .round
         layer.lineJoin = .round
-        layer.opacity = 0.7
+        layer.opacity = 0.85
         self.layer.addSublayer(layer)
         completedLayers.append(layer)
 
@@ -331,32 +441,28 @@ final class TouchCaptureUIView: UIView {
         self.layer.addSublayer(dot)
         completedLayers.append(dot)
 
-        let endDot = makeDotLayer(at: currentPath.last!, color: UIColor.red)
+        let endDot = makeDotLayer(at: currentPath.last!, color: UIColor.systemRed)
         self.layer.addSublayer(endDot)
         completedLayers.append(endDot)
     }
 
     private func makeDotLayer(at point: CGPoint, color: UIColor = UIColor.cyan) -> CAShapeLayer {
         let layer = CAShapeLayer()
-        let size: CGFloat = 12
+        let size: CGFloat = 14
         layer.path = UIBezierPath(ovalIn: CGRect(x: point.x - size/2, y: point.y - size/2, width: size, height: size)).cgPath
         layer.fillColor = color.cgColor
-        layer.opacity = 0.8
+        layer.opacity = 0.9
         return layer
     }
-
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        return self
-    }
 }
+
+// MARK: - Floating Overlay (separate window)
 
 final class FloatingOverlay {
     private static var window: UIWindow?
     private static var mode: Mode = .idle
 
-    enum Mode {
-        case idle, recording, playing
-    }
+    enum Mode { case idle, recording, playing }
 
     static func show(mode: Mode) {
         Self.mode = mode
@@ -374,12 +480,6 @@ final class FloatingOverlay {
         Self.window?.isHidden = true
         Self.window = nil
         Self.mode = .idle
-    }
-
-    static func toggle() {
-        if Self.window != nil {
-            hide()
-        }
     }
 }
 
@@ -399,8 +499,8 @@ final class FloatingVC: UIViewController {
         view.backgroundColor = .clear
 
         let w = UIScreen.main.bounds.width
-        btn = UIButton(frame: CGRect(x: w - 60, y: 200, width: 50, height: 50))
-        btn.layer.cornerRadius = 25
+        btn = UIButton(frame: CGRect(x: w - 70, y: 200, width: 58, height: 58))
+        btn.layer.cornerRadius = 29
         updateButton()
         btn.addTarget(self, action: #selector(tapped), for: .touchUpInside)
         btn.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(dragged)))
@@ -411,18 +511,25 @@ final class FloatingVC: UIViewController {
         switch mode {
         case .recording:
             btn?.backgroundColor = .systemRed
-            btn?.setTitle("REC", for: .normal)
+            btn?.setTitle("⬛", for: .normal)
         case .playing:
             btn?.backgroundColor = .systemGreen
-            btn?.setTitle("▶", for: .normal)
+            btn?.setTitle("⏹", for: .normal)
         default:
             btn?.backgroundColor = .systemBlue
             btn?.setTitle("AS", for: .normal)
         }
-        btn?.titleLabel?.font = .systemFont(ofSize: 12, weight: .bold)
+        btn?.titleLabel?.font = .systemFont(ofSize: 18, weight: .bold)
     }
 
     @objc private func tapped() {
+        let name: Notification.Name
+        switch mode {
+        case .recording: name = AutoScStopRecordingNotification
+        case .playing: name = AutoScStopPlayingNotification
+        default: name = Notification.Name("")
+        }
+        NotificationCenter.default.post(name: name, object: nil)
         FloatingOverlay.hide()
     }
 
@@ -431,5 +538,105 @@ final class FloatingVC: UIViewController {
         g.view?.center.y += t.y
         g.view?.center.x += t.x
         g.setTranslation(.zero, in: view)
+    }
+}
+
+// MARK: - Test Swipe Sheet
+
+struct TestSwipeView: View {
+    @Environment(\.dismiss) var dismiss
+    @State private var running = false
+    @State private var log: [String] = []
+    @State private var progress = 0
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 16) {
+                if running {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .cyan))
+                    Text("Running swipe \(progress)/10...")
+                        .font(.headline).foregroundColor(.cyan)
+                } else {
+                    Text("Test 10 directional swipes\nVerify the device responds")
+                        .font(.subheadline).foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+
+                    Button(action: run10Swipes) {
+                        Label("Start Test", systemImage: "arrow.triangle.2.circlepath")
+                            .font(.title3).foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.cyan)
+                            .cornerRadius(12)
+                    }
+                    .disabled(!TouchInjector.shared.canInject)
+                }
+
+                if !log.isEmpty {
+                    List(log, id: \.self) { line in
+                        Text(line).font(.caption).foregroundColor(.white)
+                            .listRowBackground(Color.white.opacity(0.05))
+                    }
+                    .listStyle(PlainListStyle()).cornerRadius(12)
+                }
+            }
+            .padding()
+            .navigationTitle("Test Swipes")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func run10Swipes() {
+        running = true
+        progress = 0
+        log = []
+
+        let w = UIScreen.main.bounds.width
+        let h = UIScreen.main.bounds.height
+        let cx = w / 2, cy = h / 2
+
+        DispatchQueue.global(qos: .userInteractive).async {
+            let swipes: [(CGPoint, CGPoint, String)] = [
+                (CGPoint(x: cx, y: h*0.75), CGPoint(x: cx, y: h*0.25), "Up"),
+                (CGPoint(x: cx, y: h*0.25), CGPoint(x: cx, y: h*0.75), "Down"),
+                (CGPoint(x: w*0.15, y: cy), CGPoint(x: w*0.85, y: cy), "Right"),
+                (CGPoint(x: w*0.85, y: cy), CGPoint(x: w*0.15, y: cy), "Left"),
+                (CGPoint(x: w*0.15, y: h*0.75), CGPoint(x: w*0.85, y: h*0.25), "Up-Right"),
+                (CGPoint(x: w*0.85, y: h*0.25), CGPoint(x: w*0.15, y: h*0.75), "Down-Left"),
+                (CGPoint(x: cx, y: h*0.75), CGPoint(x: cx, y: h*0.25), "Up #2"),
+                (CGPoint(x: w*0.85, y: cy), CGPoint(x: w*0.15, y: cy), "Left #2"),
+                (CGPoint(x: cx, y: h*0.25), CGPoint(x: cx, y: h*0.75), "Down #2"),
+                (CGPoint(x: w*0.15, y: cy), CGPoint(x: w*0.85, y: cy), "Right #2"),
+            ]
+
+            let inj = TouchInjector.shared
+            for (i, (from, to, name)) in swipes.enumerated() {
+                guard inj.canInject else {
+                    DispatchQueue.main.async {
+                        self.log.append("❌ Stopped — injector unavailable")
+                    }
+                    break
+                }
+
+                inj.swipe(from: from, to: to, duration: 0.35)
+
+                DispatchQueue.main.async {
+                    self.progress = i + 1
+                    self.log.append("✅ Swipe \(i+1)/10: \(name) (\(Int(from.x)),\(Int(from.y))) -> (\(Int(to.x)),\(Int(to.y)))")
+                }
+                usleep(500_000)
+            }
+
+            DispatchQueue.main.async {
+                self.running = false
+                self.log.append("🏁 Test complete")
+            }
+        }
     }
 }

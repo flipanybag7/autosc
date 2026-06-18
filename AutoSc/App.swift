@@ -4,6 +4,17 @@ import SwiftUI
 struct AutoScApp: App {
     @StateObject private var appState = AppState.shared
 
+    init() {
+        print("[AutoSc] Initializing injection methods...")
+        let hidOk = hid_init()
+        let gsOk = gs_init()
+        print("[AutoSc] IOKit HID: \(hidOk ? "OK" : "FAIL")")
+        print("[AutoSc] GraphicsServices: \(gsOk ? "OK" : "FAIL")")
+        if !hidOk && !gsOk {
+            print("[AutoSc] WARNING: No injection method available!")
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -18,19 +29,24 @@ final class AppState: ObservableObject {
     @Published var injectMethod: String = "none"
     @Published var hidAvailable: Bool = false
     @Published var gsAvailable: Bool = false
-    @Published var helperAvailable: Bool = false
-    @Published var helperRoot: Bool = false
-    @Published var statusDetail: String = ""
+    @Published var injectionCount: Int = 0
+    @Published var lastError: String = ""
 
     private init() {}
 
     func refreshStatus() {
         let inj = TouchInjector.shared
-        helperAvailable = helper_ready()
-        helperRoot = helper_is_root()
         hidAvailable = hid_ready()
         gsAvailable = gs_ready()
         injectMethod = inj.method
-        statusDetail = inj.statusDetail
+        injectionCount = inj.injectionCount
+        lastError = inj.lastError
+
+        if injectMethod == "none" {
+            if !hidAvailable { lastError = "HID init failed. Binary must be signed with entitlements: ldid -Sentitlements.plist AutoSc" }
+            else if !gsAvailable { lastError = "GraphicsServices dlopen failed" }
+        } else {
+            lastError = ""
+        }
     }
 }
