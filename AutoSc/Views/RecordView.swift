@@ -1,5 +1,4 @@
 import SwiftUI
-import AVFoundation
 
 let AutoScStopRecordingNotification = Notification.Name("AutoScStopRecording")
 let AutoScStopPlayingNotification = Notification.Name("AutoScStopPlaying")
