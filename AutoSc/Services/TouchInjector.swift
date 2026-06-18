@@ -7,6 +7,8 @@ final class TouchInjector {
     private(set) var method: String = "none"
     private(set) var lastError: String = ""
     private(set) var injectionCount: Int = 0
+    private(set) var hidError: String = ""
+    private(set) var gsError: String = ""
 
     private init() {
         let m = inject_method()
@@ -15,9 +17,12 @@ final class TouchInjector {
         case 1: method = "GraphicsServices"
         default: method = "none"
         }
+        hidError = String(cString: hid_error())
+        gsError = String(cString: gs_error())
+
         if m < 0 {
-            lastError = "No injection method available. Check entitlements."
-            print("[TouchInjector] \(lastError)")
+            lastError = String(cString: inject_error())
+            print("[TouchInjector] Init: \(lastError)")
         } else {
             print("[TouchInjector] Using \(method)")
         }
@@ -26,7 +31,9 @@ final class TouchInjector {
     var canInject: Bool {
         let m = inject_method()
         let ok = m >= 0
-        if !ok { lastError = "inject_method() returned \(m)" }
+        if !ok {
+            lastError = String(cString: inject_error())
+        }
         return ok
     }
 
@@ -61,24 +68,24 @@ final class TouchInjector {
     }
 
     func tap(at point: CGPoint) {
-        guard canInject else { print("[TouchInjector] Cannot tap — no method"); return }
-        print("[TouchInjector] Tap at \(Int(point.x)), \(Int(point.y))")
+        print("[TouchInjector] tap(\(Int(point.x)), \(Int(point.y))) method=\(method)")
+        guard canInject else { print("[TouchInjector] Cannot tap — \(lastError)"); return }
         touchDown(at: point)
         usleep(60000)
         touchUp(at: point)
     }
 
     func longPress(at point: CGPoint, duration: TimeInterval) {
-        guard canInject else { print("[TouchInjector] Cannot long press — no method"); return }
-        print("[TouchInjector] Long press at \(Int(point.x)), \(Int(point.y)) for \(duration)s")
+        guard canInject else { print("[TouchInjector] Cannot longPress — \(lastError)"); return }
+        print("[TouchInjector] longPress(\(Int(point.x)), \(Int(point.y)), \(duration))")
         touchDown(at: point)
         usleep(UInt32(duration * 1_000_000))
         touchUp(at: point)
     }
 
     func swipe(from start: CGPoint, to end: CGPoint, duration: TimeInterval = 0.3) {
-        guard canInject else { print("[TouchInjector] Cannot swipe — no method"); return }
-        print("[TouchInjector] Swipe from \(Int(start.x)),\(Int(start.y)) to \(Int(end.x)),\(Int(end.y)) over \(duration)s")
+        print("[TouchInjector] swipe(\(Int(start.x)),\(Int(start.y)) -> \(Int(end.x)),\(Int(end.y)), \(duration)) method=\(method)")
+        guard canInject else { print("[TouchInjector] Cannot swipe — \(lastError)"); return }
 
         let steps = max(10, Int(duration * 120))
         let interval = duration / Double(steps)

@@ -88,6 +88,26 @@ struct StatusView: View {
                                 .multilineTextAlignment(.trailing)
                         }
                     }
+                    if !appState.hidError.isEmpty {
+                        HStack {
+                            Text("HID Detail")
+                            Spacer()
+                            Text(appState.hidError)
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+                    if !appState.gsError.isEmpty {
+                        HStack {
+                            Text("GS Detail")
+                            Spacer()
+                            Text(appState.gsError)
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
                     HStack {
                         Text("Events Injected")
                         Spacer()

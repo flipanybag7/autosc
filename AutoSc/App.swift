@@ -8,10 +8,13 @@ struct AutoScApp: App {
         print("[AutoSc] Initializing injection methods...")
         let hidOk = hid_init()
         let gsOk = gs_init()
-        print("[AutoSc] IOKit HID: \(hidOk ? "OK" : "FAIL")")
-        print("[AutoSc] GraphicsServices: \(gsOk ? "OK" : "FAIL")")
+        let hidErr = String(cString: hid_error())
+        let gsErr = String(cString: gs_error())
+        print("[AutoSc] IOKit HID: \(hidOk ? "OK" : "FAIL") \(hidErr)")
+        print("[AutoSc] GraphicsServices: \(gsOk ? "OK" : "FAIL") \(gsErr)")
         if !hidOk && !gsOk {
-            print("[AutoSc] WARNING: No injection method available!")
+            let err = String(cString: inject_error())
+            print("[AutoSc] ERROR: \(err)")
         }
     }
 
@@ -31,6 +34,8 @@ final class AppState: ObservableObject {
     @Published var gsAvailable: Bool = false
     @Published var injectionCount: Int = 0
     @Published var lastError: String = ""
+    @Published var hidError: String = ""
+    @Published var gsError: String = ""
 
     private init() {}
 
@@ -40,11 +45,12 @@ final class AppState: ObservableObject {
         gsAvailable = gs_ready()
         injectMethod = inj.method
         injectionCount = inj.injectionCount
-        lastError = inj.lastError
+
+        hidError = String(cString: hid_error())
+        gsError = String(cString: gs_error())
 
         if injectMethod == "none" {
-            if !hidAvailable { lastError = "HID init failed. Binary must be signed with entitlements: ldid -Sentitlements.plist AutoSc" }
-            else if !gsAvailable { lastError = "GraphicsServices dlopen failed" }
+            lastError = String(cString: inject_error())
         } else {
             lastError = ""
         }
