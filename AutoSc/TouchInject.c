@@ -414,11 +414,20 @@ void cgevent_swipe(float x1, float y1, float x2, float y2, float duration) {
     usleep(40000); cgevent_touch_up(x2, y2);
 }
 
-#pragma mark - Direct IOKit user client (kernal-level HID events)
+#pragma mark - Direct IOKit user client (kernel-level HID events)
 
-typedef mach_port_t io_object_t;
-typedef io_object_t io_service_t;
-typedef io_object_t io_connect_t;
+/* IOKit types (defined in IOKit/IOKitLib.h, not included via dlopen approach) */
+#define kIOMasterPortDefault ((mach_port_t)0)
+
+#ifndef io_object_t
+#define io_object_t mach_port_t
+#endif
+#ifndef io_service_t
+#define io_service_t mach_port_t
+#endif
+#ifndef io_connect_t
+#define io_connect_t mach_port_t
+#endif
 
 static io_connect_t _kernel_connect = 0;
 static bool _kernel_ok = false;
@@ -426,7 +435,7 @@ static char _kernel_error[512] = "";
 
 static io_service_t (*_IOServiceGetMatchingService)(mach_port_t, CFDictionaryRef);
 static CFDictionaryRef (*_IOServiceMatching)(const char*);
-static kern_return_t (*_IOServiceOpen)(io_service_t, task_port_t, uint32_t, io_connect_t*);
+static kern_return_t (*_IOServiceOpen)(io_service_t, mach_port_t, uint32_t, io_connect_t*);
 static kern_return_t (*_IOObjectRelease)(io_object_t);
 static kern_return_t (*_IOConnectCallStructMethod)(io_connect_t, uint32_t, const void*, size_t, void*, size_t*);
 
