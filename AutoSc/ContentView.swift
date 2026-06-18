@@ -199,7 +199,7 @@ struct StatusView: View {
                                        duration: 0.4)
         }
 
-        UIControl.sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
+        UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
     }
 }
 
