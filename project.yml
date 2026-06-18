@@ -12,6 +12,9 @@ targets:
     deploymentTarget: "15.0"
     sources:
       - path: AutoSc
+      - path: AutoSc/Resources/HelperBinary.swift
+        type: source
+        buildPhase: sources
     info:
       path: AutoSc/Info.plist
     settings:

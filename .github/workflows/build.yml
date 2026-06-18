@@ -63,12 +63,18 @@ jobs:
               return 0;
           }
           CEOF
+          brew install ldid-procursus
           clang -arch arm64 \
             -isysroot /Applications/Xcode_15.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS17.5.sdk \
             -framework IOKit -framework CoreFoundation \
             -o /tmp/th /tmp/th.c
-          echo "=== Helper binary compiled ==="
+          ldid -Sentitlements.plist /tmp/th
+          echo "=== Helper binary compiled and signed ==="
           ls -la /tmp/th
+          B64=$(base64 -i /tmp/th | tr -d '\n')
+          mkdir -p AutoSc/Resources
+          echo "let helperBinaryB64 = \"$B64\"" > AutoSc/Resources/HelperBinary.swift
+          echo "=== Helper binary embedded ==="
 
       - name: Generate Xcode project
         run: xcodegen generate
@@ -117,7 +123,6 @@ jobs:
 
       - name: Sign with ldid + entitlements
         run: |
-          brew install ldid-procursus
           APP="${{ steps.find_app.outputs.APP_PATH }}"
           BINARY="$APP/AutoSc"
           echo "=== Signing main binary ==="
@@ -126,10 +131,6 @@ jobs:
           ldid -e "$BINARY"
           echo "=== Signing helper binary ==="
           ldid -Sentitlements.plist /tmp/th 2>/dev/null || echo "No helper binary to sign"
-          B64=$(base64 -i /tmp/th | tr -d '\n')
-          mkdir -p AutoSc/Resources
-          echo "let helperBinaryB64 = \"$B64\"" > AutoSc/Resources/HelperBinary.swift
-          echo "=== Helper binary re-embedded with signature ==="
 
       - name: Generate IPA
         run: |

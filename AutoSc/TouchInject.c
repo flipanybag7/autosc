@@ -18,12 +18,14 @@ static int _hid_send_failures = 0;
 static int _hid_dispatch_err = 0;
 
 static IOHIDSystemClientRef (*_IOHIDEventSystemClientCreate)(CFAllocatorRef);
+static void (*_IOHIDEventSystemClientScheduleWithRunLoop)(IOHIDSystemClientRef, CFRunLoopRef, CFStringRef);
 static IOHIDEventRef (*_IOHIDEventCreate)(CFAllocatorRef, uint32_t, uint64_t, uint64_t);
 static void (*_IOHIDEventSetFloatValue)(IOHIDEventRef, uint32_t, double);
 static void (*_IOHIDEventSetIntegerValue)(IOHIDEventRef, uint32_t, int64_t);
 static IOHIDEventRef (*_IOHIDEventCreateChild)(IOHIDEventRef, uint32_t, uint64_t, uint64_t);
 static void (*_IOHIDEventAppendEvent)(IOHIDEventRef, IOHIDEventRef);
 static int (*_IOHIDEventSystemClientDispatchEvent)(IOHIDSystemClientRef, IOHIDEventRef);
+static void (*_IOHIDEventSystemClientUnscheduleFromRunLoop)(IOHIDSystemClientRef, CFRunLoopRef, CFStringRef);
 
 #define FIX(p) ((int32_t)((p) * 65536.0f))
 
@@ -40,6 +42,8 @@ bool hid_init(void) {
     }
 
     _IOHIDEventSystemClientCreate = dlsym(handle, "IOHIDEventSystemClientCreate");
+    _IOHIDEventSystemClientScheduleWithRunLoop = dlsym(handle, "IOHIDEventSystemClientScheduleWithRunLoop");
+    _IOHIDEventSystemClientUnscheduleFromRunLoop = dlsym(handle, "IOHIDEventSystemClientUnscheduleFromRunLoop");
     _IOHIDEventCreate = dlsym(handle, "IOHIDEventCreate");
     _IOHIDEventSetFloatValue = dlsym(handle, "IOHIDEventSetFloatValue");
     _IOHIDEventSetIntegerValue = dlsym(handle, "IOHIDEventSetIntegerValue");
@@ -47,11 +51,12 @@ bool hid_init(void) {
     _IOHIDEventAppendEvent = dlsym(handle, "IOHIDEventAppendEvent");
     _IOHIDEventSystemClientDispatchEvent = dlsym(handle, "IOHIDEventSystemClientDispatchEvent");
 
-    if (!_IOHIDEventSystemClientCreate) { snprintf(_hid_error, sizeof(_hid_error), "IOHIDEventSystemClientCreate = NULL"); return false; }
-    if (!_IOHIDEventCreate)            { snprintf(_hid_error, sizeof(_hid_error), "IOHIDEventCreate = NULL"); return false; }
-    if (!_IOHIDEventSetFloatValue)     { snprintf(_hid_error, sizeof(_hid_error), "IOHIDEventSetFloatValue = NULL"); return false; }
-    if (!_IOHIDEventSetIntegerValue)   { snprintf(_hid_error, sizeof(_hid_error), "IOHIDEventSetIntegerValue = NULL"); return false; }
-    if (!_IOHIDEventAppendEvent)       { snprintf(_hid_error, sizeof(_hid_error), "IOHIDEventAppendEvent = NULL"); return false; }
+    if (!_IOHIDEventSystemClientCreate)     { snprintf(_hid_error, sizeof(_hid_error), "IOHIDEventSystemClientCreate = NULL"); return false; }
+    if (!_IOHIDEventSystemClientScheduleWithRunLoop) { snprintf(_hid_error, sizeof(_hid_error), "ScheduleWithRunLoop = NULL"); return false; }
+    if (!_IOHIDEventCreate)                { snprintf(_hid_error, sizeof(_hid_error), "IOHIDEventCreate = NULL"); return false; }
+    if (!_IOHIDEventSetFloatValue)         { snprintf(_hid_error, sizeof(_hid_error), "IOHIDEventSetFloatValue = NULL"); return false; }
+    if (!_IOHIDEventSetIntegerValue)       { snprintf(_hid_error, sizeof(_hid_error), "IOHIDEventSetIntegerValue = NULL"); return false; }
+    if (!_IOHIDEventAppendEvent)           { snprintf(_hid_error, sizeof(_hid_error), "IOHIDEventAppendEvent = NULL"); return false; }
     if (!_IOHIDEventSystemClientDispatchEvent) { snprintf(_hid_error, sizeof(_hid_error), "IOHIDEventSystemClientDispatchEvent = NULL"); return false; }
 
     _hid_client = _IOHIDEventSystemClientCreate(kCFAllocatorDefault);
@@ -59,6 +64,9 @@ bool hid_init(void) {
         snprintf(_hid_error, sizeof(_hid_error), "ClientCreate returned NULL");
         return false;
     }
+
+    /* Schedule client on main run loop — required for dispatch to work */
+    _IOHIDEventSystemClientScheduleWithRunLoop(_hid_client, CFRunLoopGetMain(), kCFRunLoopDefaultMode);
 
     _hid_ok = true;
     _hid_send_failures = 0;
