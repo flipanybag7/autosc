@@ -419,25 +419,15 @@ void cgevent_swipe(float x1, float y1, float x2, float y2, float duration) {
 /* IOKit types (defined in IOKit/IOKitLib.h, not included via dlopen approach) */
 #define kIOMasterPortDefault ((mach_port_t)0)
 
-#ifndef io_object_t
-#define io_object_t mach_port_t
-#endif
-#ifndef io_service_t
-#define io_service_t mach_port_t
-#endif
-#ifndef io_connect_t
-#define io_connect_t mach_port_t
-#endif
-
-static io_connect_t _kernel_connect = 0;
+static mach_port_t _kernel_connect = 0;
 static bool _kernel_ok = false;
 static char _kernel_error[512] = "";
 
-static io_service_t (*_IOServiceGetMatchingService)(mach_port_t, CFDictionaryRef);
+static mach_port_t (*_IOServiceGetMatchingService)(mach_port_t, CFDictionaryRef);
 static CFDictionaryRef (*_IOServiceMatching)(const char*);
-static kern_return_t (*_IOServiceOpen)(io_service_t, mach_port_t, uint32_t, io_connect_t*);
-static kern_return_t (*_IOObjectRelease)(io_object_t);
-static kern_return_t (*_IOConnectCallStructMethod)(io_connect_t, uint32_t, const void*, size_t, void*, size_t*);
+static kern_return_t (*_IOServiceOpen)(mach_port_t, mach_port_t, uint32_t, mach_port_t*);
+static kern_return_t (*_IOObjectRelease)(mach_port_t);
+static kern_return_t (*_IOConnectCallStructMethod)(mach_port_t, uint32_t, const void*, size_t, void*, size_t*);
 
 /* HID event structure for IOHIDSystem user client */
 typedef struct {
@@ -469,7 +459,7 @@ bool kernel_init(void) {
         return false;
     }
 
-    io_service_t service = _IOServiceGetMatchingService(kIOMasterPortDefault, _IOServiceMatching("IOHIDSystem"));
+    mach_port_t service = _IOServiceGetMatchingService(kIOMasterPortDefault, _IOServiceMatching("IOHIDSystem"));
     if (!service) { snprintf(_kernel_error, sizeof(_kernel_error), "IOHIDSystem service not found"); return false; }
 
     kern_return_t kr = _IOServiceOpen(service, mach_task_self(), 1, &_kernel_connect);
