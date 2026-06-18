@@ -16,6 +16,7 @@ static bool _hid_ok = false;
 static char _hid_error[512] = "";
 static int _hid_attempt_count = 0;
 static int _hid_send_failures = 0;
+static int _hid_dispatch_err = 0;
 
 static IOHIDSystemClientRef (*_IOHIDEventSystemClientCreate)(CFAllocatorRef);
 static IOHIDEventRef (*_IOHIDEventCreateDigitizerEvent)(
@@ -62,24 +63,15 @@ bool hid_init(void) {
 
     _hid_ok = true;
     _hid_send_failures = 0;
+    _hid_dispatch_err = 0;
     return true;
 }
 
-bool hid_ready(void) {
-    return _hid_ok;
-}
-
-const char* hid_error(void) {
-    return _hid_error;
-}
-
-int hid_attempts(void) {
-    return _hid_attempt_count;
-}
-
-int hid_send_failures(void) {
-    return _hid_send_failures;
-}
+bool hid_ready(void) { return _hid_ok; }
+const char* hid_error(void) { return _hid_error; }
+int hid_attempts(void) { return _hid_attempt_count; }
+int hid_send_failures(void) { return _hid_send_failures; }
+int hid_dispatch_err(void) { return _hid_dispatch_err; }
 
 static void _hid_send(float x, float y, int32_t finger_id, int touch_type) {
     if (!_hid_client) { _hid_send_failures++; return; }
@@ -91,7 +83,7 @@ static void _hid_send(float x, float y, int32_t finger_id, int touch_type) {
     uint32_t finger_mask;
     int32_t tip, range;
     if (touch_type == 2) {
-        finger_mask = 1;   /* kIOHIDDigitizerEventRange */
+        finger_mask = 1;   /* range only */
         tip = 0;
         range = 0;
     } else {
@@ -102,38 +94,40 @@ static void _hid_send(float x, float y, int32_t finger_id, int touch_type) {
 
     IOHIDEventRef parent = _IOHIDEventCreateDigitizerEvent(
         kCFAllocatorDefault, ts,
-        3,                     /* transducerType: finger */
+        3,                     /* kIOHIDDigitizerTransducerTypeFinger */
         0,                     /* index */
         (uint32_t)finger_id + 2, /* identity */
-        3,                     /* eventMask: range+touch (1|2) */
+        touch_type == 2 ? 0 : 3, /* eventMask */
         0,                     /* buttonMask */
-        fx, fy, 0,             /* x,y,z fixed */
-        tip, 0,                /* tipPressure, auxPressure */
+        fx, fy, 0,
+        tip, 0,
         0,                     /* twist */
         0,                     /* tangentialPressure */
-        range,                 /* range */
-        0);                    /* options */
+        range,
+        0);
 
     IOHIDEventRef finger = _IOHIDEventCreateDigitizerFingerEvent(
         kCFAllocatorDefault, ts,
-        (uint32_t)finger_id,               /* index */
-        (uint32_t)finger_id + 2,           /* identity */
+        (uint32_t)finger_id,
+        (uint32_t)finger_id + 2,
         finger_mask,
         fx, fy, 0,
         tip, 0,
         0, range,
         0);
 
-    if (!parent) { _hid_send_failures++; }
-    if (!finger) { _hid_send_failures++; }
+    if (!parent) { _hid_send_failures++; return; }
+    if (!finger) { _hid_send_failures++; CFRelease(parent); return; }
 
-    if (parent && finger) {
-        _IOHIDEventAppendEvent(parent, finger);
-        _IOHIDEventSystemClientDispatchEvent(_hid_client, parent);
+    _IOHIDEventAppendEvent(parent, finger);
+    int dispatch_ret = _IOHIDEventSystemClientDispatchEvent(_hid_client, parent);
+    if (dispatch_ret != 0) {
+        _hid_dispatch_err = dispatch_ret;
+        _hid_send_failures++;
     }
 
-    if (finger) CFRelease(finger);
-    if (parent) CFRelease(parent);
+    CFRelease(finger);
+    CFRelease(parent);
 }
 
 void hid_touch_down(float x, float y, int32_t finger_id) { _hid_send(x, y, finger_id, 0); }
@@ -169,7 +163,178 @@ void hid_long_press(float x, float y, float duration) {
     hid_touch_up(x, y, 0);
 }
 
-#pragma mark - GraphicsServices GSEvent
+#pragma mark - IOHIDUserDevice (virtual HID device)
+
+typedef void* IOHIDUserDeviceRef;
+
+static IOHIDUserDeviceRef _user_device = NULL;
+static bool _userdev_ok = false;
+static char _userdev_error[512] = "";
+
+static IOHIDUserDeviceRef (*_IOHIDUserDeviceCreate)(CFAllocatorRef, CFDictionaryRef);
+static int (*_IOHIDUserDeviceHandleReport)(IOHIDUserDeviceRef, uint8_t*, CFIndex);
+static void (*_IOHIDUserDeviceRegisterGetReportCallback)(IOHIDUserDeviceRef, void*, void*);
+static void (*_IOHIDUserDeviceUnscheduleWithRunLoop)(IOHIDUserDeviceRef, CFRunLoopRef, CFStringRef);
+static void (*_IOHIDUserDeviceScheduleWithRunLoop)(IOHIDUserDeviceRef, CFRunLoopRef, CFStringRef);
+
+/* HID report descriptor for a simple touch digitizer */
+static const uint8_t _touch_descriptor[] = {
+    0x05, 0x0D,        /* Usage Page (Digitizers) */
+    0x09, 0x04,        /* Usage (Touch Screen) */
+    0xA1, 0x01,        /* Collection (Application) */
+    0x09, 0x22,        /*   Usage (Finger) */
+    0xA1, 0x02,        /*   Collection (Logical) */
+    0x09, 0x42,        /*     Usage (Tip Switch) */
+    0x15, 0x00,        /*     Logical Minimum (0) */
+    0x25, 0x01,        /*     Logical Maximum (1) */
+    0x75, 0x01,        /*     Report Size (1) */
+    0x95, 0x01,        /*     Report Count (1) */
+    0x81, 0x02,        /*     Input (Data,Var,Abs) */
+    0x09, 0x32,        /*     Usage (In Range) */
+    0x81, 0x02,        /*     Input (Data,Var,Abs) */
+    0x09, 0x30,        /*     Usage (Tip X) */
+    0x09, 0x31,        /*     Usage (Tip Y) */
+    0x15, 0x00,        /*     Logical Minimum (0) */
+    0x26, 0xFF, 0x7F,  /*     Logical Maximum (32767) */
+    0x75, 0x10,        /*     Report Size (16) */
+    0x95, 0x02,        /*     Report Count (2) */
+    0x81, 0x02,        /*     Input (Data,Var,Abs) */
+    0x09, 0x51,        /*     Usage (Contact Identifier) */
+    0x75, 0x10,        /*     Report Size (16) */
+    0x95, 0x01,        /*     Report Count (1) */
+    0x81, 0x02,        /*     Input (Data,Var,Abs) */
+    0xC0,              /*   End Collection */
+    0xC0               /* End Collection */
+};
+
+bool userdev_init(void) {
+    if (_user_device) return _userdev_ok;
+
+    void* handle = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW | RTLD_LOCAL);
+    if (!handle) {
+        handle = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_LAZY | RTLD_LOCAL);
+    }
+    if (!handle) {
+        snprintf(_userdev_error, sizeof(_userdev_error), "dlopen failed");
+        return false;
+    }
+
+    _IOHIDUserDeviceCreate = dlsym(handle, "IOHIDUserDeviceCreate");
+    _IOHIDUserDeviceHandleReport = dlsym(handle, "IOHIDUserDeviceHandleReport");
+    _IOHIDUserDeviceRegisterGetReportCallback = dlsym(handle, "IOHIDUserDeviceRegisterGetReportCallback");
+    _IOHIDUserDeviceScheduleWithRunLoop = dlsym(handle, "IOHIDUserDeviceScheduleWithRunLoop");
+    _IOHIDUserDeviceUnscheduleWithRunLoop = dlsym(handle, "IOHIDUserDeviceUnscheduleWithRunLoop");
+
+    if (!_IOHIDUserDeviceCreate) {
+        snprintf(_userdev_error, sizeof(_userdev_error), "IOHIDUserDeviceCreate not found");
+        return false;
+    }
+    if (!_IOHIDUserDeviceHandleReport) {
+        snprintf(_userdev_error, sizeof(_userdev_error), "IOHIDUserDeviceHandleReport not found");
+        return false;
+    }
+
+    CFMutableDictionaryRef props = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+
+    CFStringRef primaryUsagePageKey = CFSTR("PrimaryUsagePage");
+    CFStringRef primaryUsageKey = CFSTR("PrimaryUsage");
+    CFStringRef reportDescKey = CFSTR("ReportDescriptor");
+
+    uint32_t usagePage = 0x0D;
+    uint32_t usage = 0x04;
+
+    CFNumberRef pageNum = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &usagePage);
+    CFNumberRef usageNum = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &usage);
+
+    CFDataRef descData = CFDataCreate(kCFAllocatorDefault, _touch_descriptor, sizeof(_touch_descriptor));
+
+    if (props && pageNum && usageNum && descData) {
+        CFDictionarySetValue(props, primaryUsagePageKey, pageNum);
+        CFDictionarySetValue(props, primaryUsageKey, usageNum);
+        CFDictionarySetValue(props, reportDescKey, descData);
+
+        _user_device = _IOHIDUserDeviceCreate(kCFAllocatorDefault, props);
+    }
+
+    if (props) CFRelease(props);
+    if (pageNum) CFRelease(pageNum);
+    if (usageNum) CFRelease(usageNum);
+    if (descData) CFRelease(descData);
+
+    if (!_user_device) {
+        snprintf(_userdev_error, sizeof(_userdev_error), "IOHIDUserDeviceCreate failed");
+        return false;
+    }
+
+    /* Schedule on main run loop */
+    if (_IOHIDUserDeviceScheduleWithRunLoop) {
+        _IOHIDUserDeviceScheduleWithRunLoop(_user_device, CFRunLoopGetMain(), kCFRunLoopDefaultMode);
+    }
+
+    _userdev_ok = true;
+    return true;
+}
+
+bool userdev_ready(void) { return _userdev_ok; }
+const char* userdev_error(void) { return _userdev_error; }
+
+static float _userdev_screen_w = 393.0f;
+static float _userdev_screen_h = 852.0f;
+
+void userdev_set_screen_size(float w, float h) {
+    _userdev_screen_w = w;
+    _userdev_screen_h = h;
+}
+
+void userdev_touch(float x, float y, int32_t finger_id, int touch_type) {
+    if (!_user_device || !_IOHIDUserDeviceHandleReport) return;
+
+    int32_t ix = (int32_t)(x / _userdev_screen_w * 32767.0f);
+    int32_t iy = (int32_t)(y / _userdev_screen_h * 32767.0f);
+
+    uint8_t report[8];
+    memset(report, 0, sizeof(report));
+
+    /* HID report: [touch_switch:1] [in_range:1] [reserved:6] [x:16] [y:16] [contact:16] */
+    if (touch_type == 2) {
+        report[0] = 0;  /* tip switch = 0, in_range = 0 */
+    } else {
+        report[0] = 3;  /* tip switch = 1, in_range = 1 */
+    }
+    report[2] = (uint8_t)(ix & 0xFF);
+    report[3] = (uint8_t)((ix >> 8) & 0xFF);
+    report[4] = (uint8_t)(iy & 0xFF);
+    report[5] = (uint8_t)((iy >> 8) & 0xFF);
+    report[6] = (uint8_t)(finger_id & 0xFF);
+    report[7] = (uint8_t)((finger_id >> 8) & 0xFF);
+
+    _IOHIDUserDeviceHandleReport(_user_device, report, sizeof(report));
+}
+
+void userdev_tap(float x, float y) {
+    userdev_touch(x, y, 0, 0);
+    usleep(60000);
+    userdev_touch(x, y, 0, 2);
+}
+
+void userdev_swipe(float x1, float y1, float x2, float y2, float duration) {
+    int steps = (int)(duration * 120);
+    if (steps < 10) steps = 10;
+    useconds_t delay = (useconds_t)(duration / (float)steps * 1000000.0f);
+
+    userdev_touch(x1, y1, 0, 0);
+    for (int i = 1; i <= steps; i++) {
+        usleep(delay);
+        float t = (float)i / (float)steps;
+        float cx = x1 + (x2 - x1) * t;
+        float cy = y1 + (y2 - y1) * t;
+        userdev_touch(cx, cy, 0, 1);
+    }
+    usleep(40000);
+    userdev_touch(x2, y2, 0, 2);
+}
+
+#pragma mark - GraphicsServices GSEvent (for older iOS)
 
 static void* _gs_handle = NULL;
 static bool _gs_ok = false;
@@ -197,13 +362,12 @@ bool gs_init(void) {
 
     if (!_GSSendEvent && !_GSSendSystemEvent) {
         snprintf(_gs_error, sizeof(_gs_error), "GSSendEvent and GSSendSystemEvent both NULL");
-        dlclose(_gs_handle);
-        _gs_handle = NULL;
+        dlclose(_gs_handle); _gs_handle = NULL;
         return false;
     }
 
     if (!_GSCreateEvent) {
-        snprintf(_gs_error, sizeof(_gs_error), "GSCreateEvent not found (remove in later iOS)");
+        snprintf(_gs_error, sizeof(_gs_error), "GSCreateEvent not found (removed in later iOS)");
     }
 
     if (_GSCreateEvent) {
@@ -214,13 +378,8 @@ bool gs_init(void) {
     return false;
 }
 
-bool gs_ready(void) {
-    return _gs_ok;
-}
-
-const char* gs_error(void) {
-    return _gs_error;
-}
+bool gs_ready(void) { return _gs_ok; }
+const char* gs_error(void) { return _gs_error; }
 
 void gs_touch_down(float x, float y) {}
 void gs_touch_move(float x, float y) {}
@@ -232,18 +391,21 @@ void gs_swipe(float x1, float y1, float x2, float y2, float duration) {}
 
 int inject_method(void) {
     if (_hid_ok) return 0;
+    if (_userdev_ok) return 2;
     if (_gs_ok) return 1;
     return -1;
 }
 
 const char* inject_method_name(void) {
     if (_hid_ok) return "IOKit HID";
+    if (_userdev_ok) return "IOKit UserDevice";
     if (_gs_ok) return "GraphicsServices";
     return "none";
 }
 
 const char* inject_error(void) {
     if (!_hid_ok && _hid_error[0]) return _hid_error;
+    if (!_userdev_ok && _userdev_error[0]) return _userdev_error;
     if (!_gs_ok && _gs_error[0]) return _gs_error;
     return "";
 }

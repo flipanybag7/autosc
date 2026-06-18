@@ -9,12 +9,21 @@ bool hid_ready(void);
 const char* hid_error(void);
 int hid_attempts(void);
 int hid_send_failures(void);
+int hid_dispatch_err(void);
 void hid_touch_down(float x, float y, int32_t finger_id);
 void hid_touch_move(float x, float y, int32_t finger_id);
 void hid_touch_up(float x, float y, int32_t finger_id);
 void hid_tap(float x, float y);
 void hid_swipe(float x1, float y1, float x2, float y2, float duration);
 void hid_long_press(float x, float y, float duration);
+
+bool userdev_init(void);
+bool userdev_ready(void);
+const char* userdev_error(void);
+void userdev_set_screen_size(float w, float h);
+void userdev_touch(float x, float y, int32_t finger_id, int touch_type);
+void userdev_tap(float x, float y);
+void userdev_swipe(float x1, float y1, float x2, float y2, float duration);
 
 bool gs_init(void);
 bool gs_ready(void);

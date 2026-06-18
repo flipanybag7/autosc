@@ -109,6 +109,22 @@ struct StatusView: View {
                         }
                     }
                     HStack {
+                        Text("IOHIDUserDevice")
+                        Spacer()
+                        Text(appState.userdevAvailable ? "Available" : "Unavailable")
+                            .foregroundColor(appState.userdevAvailable ? .green : .red)
+                    }
+                    if !appState.userdevError.isEmpty {
+                        HStack {
+                            Text("UserDevice Detail")
+                            Spacer()
+                            Text(appState.userdevError)
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+                    HStack {
                         Text("Events Injected")
                         Spacer()
                         Text("\(appState.injectionCount)")

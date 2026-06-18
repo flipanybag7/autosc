@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import UIKit
 
 final class TouchInjector {
     static let shared = TouchInjector()
@@ -9,18 +10,27 @@ final class TouchInjector {
     private(set) var injectionCount: Int = 0
     private(set) var hidError: String = ""
     private(set) var gsError: String = ""
+    private(set) var userdevError: String = ""
     private(set) var hidSendFailures: Int = 0
+    private(set) var hidDispatchErr: Int = 0
 
     private init() {
+        let w = UIScreen.main.bounds.width
+        let h = UIScreen.main.bounds.height
+        userdev_set_screen_size(Float(w), Float(h))
+
         let m = inject_method()
         switch m {
         case 0: method = "IOKit HID"
         case 1: method = "GraphicsServices"
+        case 2: method = "IOKit UserDevice"
         default: method = "none"
         }
         hidError = String(cString: hid_error())
         gsError = String(cString: gs_error())
+        userdevError = String(cString: userdev_error())
         hidSendFailures = Int(hid_send_failures())
+        hidDispatchErr = Int(hid_dispatch_err())
 
         if m < 0 {
             lastError = String(cString: inject_error())
@@ -33,38 +43,40 @@ final class TouchInjector {
     var canInject: Bool {
         let m = inject_method()
         let ok = m >= 0
-        if !ok {
-            lastError = String(cString: inject_error())
-        }
+        if !ok { lastError = String(cString: inject_error()) }
         return ok
+    }
+
+    var useUserDevice: Bool {
+        userdev_ready()
     }
 
     func touchDown(at point: CGPoint, fingerId: Int32 = 0) {
         guard canInject else { return }
-        switch inject_method() {
-        case 0: hid_touch_down(Float(point.x), Float(point.y), fingerId)
-        case 1: gs_touch_down(Float(point.x), Float(point.y))
-        default: break
+        if useUserDevice {
+            userdev_touch(Float(point.x), Float(point.y), fingerId, 0)
+        } else {
+            hid_touch_down(Float(point.x), Float(point.y), fingerId)
         }
         injectionCount += 1
     }
 
     func touchMove(to point: CGPoint, fingerId: Int32 = 0) {
         guard canInject else { return }
-        switch inject_method() {
-        case 0: hid_touch_move(Float(point.x), Float(point.y), fingerId)
-        case 1: gs_touch_move(Float(point.x), Float(point.y))
-        default: break
+        if useUserDevice {
+            userdev_touch(Float(point.x), Float(point.y), fingerId, 1)
+        } else {
+            hid_touch_move(Float(point.x), Float(point.y), fingerId)
         }
         injectionCount += 1
     }
 
     func touchUp(at point: CGPoint, fingerId: Int32 = 0) {
         guard canInject else { return }
-        switch inject_method() {
-        case 0: hid_touch_up(Float(point.x), Float(point.y), fingerId)
-        case 1: gs_touch_up(Float(point.x), Float(point.y))
-        default: break
+        if useUserDevice {
+            userdev_touch(Float(point.x), Float(point.y), fingerId, 2)
+        } else {
+            hid_touch_up(Float(point.x), Float(point.y), fingerId)
         }
         injectionCount += 1
     }

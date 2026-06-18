@@ -8,11 +8,14 @@ struct AutoScApp: App {
         print("[AutoSc] Initializing injection methods...")
         let hidOk = hid_init()
         let gsOk = gs_init()
+        let udOk = userdev_init()
         let hidErr = String(cString: hid_error())
         let gsErr = String(cString: gs_error())
+        let udErr = String(cString: userdev_error())
         print("[AutoSc] IOKit HID: \(hidOk ? "OK" : "FAIL") \(hidErr)")
         print("[AutoSc] GraphicsServices: \(gsOk ? "OK" : "FAIL") \(gsErr)")
-        if !hidOk && !gsOk {
+        print("[AutoSc] IOHIDUserDevice: \(udOk ? "OK" : "FAIL") \(udErr)")
+        if !hidOk && !gsOk && !udOk {
             let err = String(cString: inject_error())
             print("[AutoSc] ERROR: \(err)")
         }
@@ -37,6 +40,8 @@ final class AppState: ObservableObject {
     @Published var hidError: String = ""
     @Published var gsError: String = ""
     @Published var hidSendFailures: Int = 0
+    @Published var userdevAvailable: Bool = false
+    @Published var userdevError: String = ""
 
     private init() {}
 
@@ -49,6 +54,8 @@ final class AppState: ObservableObject {
 
         hidError = String(cString: hid_error())
         gsError = String(cString: gs_error())
+        userdevError = String(cString: userdev_error())
+        userdevAvailable = userdev_ready()
         hidSendFailures = Int(hid_send_failures())
 
         if injectMethod == "none" {
