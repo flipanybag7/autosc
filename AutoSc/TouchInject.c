@@ -454,7 +454,7 @@ bool kernel_init(void) {
     _IOObjectRelease = dlsym(handle, "IOObjectRelease");
     _IOConnectCallStructMethod = dlsym(handle, "IOConnectCallStructMethod");
 
-    if (!_IOServiceGetMatchingService || !_IOServiceMatching || !_IOServiceOpen || !_IOConnectCallStructMethod) {
+    if (!_IOServiceGetMatchingService || !_IOServiceMatching || !_IOServiceOpen || !_IOObjectRelease || !_IOConnectCallStructMethod) {
         snprintf(_kernel_error, sizeof(_kernel_error), "dlsym one or more IOKit functions failed");
         return false;
     }
