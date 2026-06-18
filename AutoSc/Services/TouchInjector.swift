@@ -12,6 +12,7 @@ final class TouchInjector {
     private(set) var gsError: String = ""
     private(set) var userdevError: String = ""
     private(set) var cgeventError: String = ""
+    private(set) var kernelError: String = ""
     private(set) var hidSendFailures: Int = 0
     private(set) var hidDispatchErr: Int = 0
     private(set) var helperReady: Bool = false
@@ -41,6 +42,7 @@ final class TouchInjector {
         gsError = String(cString: gs_error())
         userdevError = String(cString: userdev_error())
         cgeventError = String(cString: cgevent_error())
+        kernelError = String(cString: kernel_error())
         hidSendFailures = Int(hid_send_failures())
         hidDispatchErr = Int(hid_dispatch_err())
 
@@ -62,14 +64,21 @@ final class TouchInjector {
     }
 
     private func dispatchTouch(at point: CGPoint, fingerId: Int32 = 0, phase: Int) {
-        // Tweak (SpringBoard injection) takes priority
+        // Kernel direct (IOKit user client) takes highest priority
+        if kernel_ready() {
+            if phase == 0 { kernel_touch_down(Float(point.x), Float(point.y)) }
+            else if phase == 1 { kernel_touch_move(Float(point.x), Float(point.y)) }
+            else { kernel_touch_up(Float(point.x), Float(point.y)) }
+            return
+        }
+        // Tweak (SpringBoard injection) takes second priority
         if tweakConnected {
             if phase == 0 { _ = TweakComm.shared.touchDown(at: point) }
             else if phase == 1 { _ = TweakComm.shared.touchMove(to: point) }
             else { _ = TweakComm.shared.touchUp(at: point) }
             return
         }
-        // Helper binary takes second priority
+        // Helper binary takes third priority
         if helperReady {
             let _ = HelperExecutor.shared.sendTouch(
                 type: Int32(phase), x: Float(point.x), y: Float(point.y), fingerId: fingerId)
@@ -77,6 +86,9 @@ final class TouchInjector {
         }
         let m = inject_method()
         switch m {
+        case 4: // Kernel direct
+            if phase == 0 { kernel_touch_down(Float(point.x), Float(point.y)) }
+            else if phase == 2 { kernel_touch_up(Float(point.x), Float(point.y)) }
         case 1: // GraphicsServices (GSEvent via GSSendEvent)
             if phase == 0 { gs_touch_down(Float(point.x), Float(point.y)) }
             else if phase == 1 { gs_touch_move(Float(point.x), Float(point.y)) }
@@ -104,6 +116,10 @@ final class TouchInjector {
 
     func touchMove(to point: CGPoint, fingerId: Int32 = 0) {
         guard canInject else { return }
+        if kernel_ready() {
+            kernel_touch_move(Float(point.x), Float(point.y))
+            injectionCount += 1; return
+        }
         if tweakConnected {
             _ = TweakComm.shared.touchMove(to: point)
             injectionCount += 1; return
@@ -116,6 +132,7 @@ final class TouchInjector {
         }
         let m = inject_method()
         switch m {
+        case 4: kernel_touch_move(Float(point.x), Float(point.y))
         case 1: gs_touch_move(Float(point.x), Float(point.y))
         case 0: hid_touch_move(Float(point.x), Float(point.y), fingerId)
         case 2: userdev_touch(Float(point.x), Float(point.y), fingerId, 1)

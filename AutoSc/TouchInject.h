@@ -42,6 +42,16 @@ void cgevent_touch_down(float x, float y);
 void cgevent_touch_up(float x, float y);
 void cgevent_swipe(float x1, float y1, float x2, float y2, float duration);
 
+bool kernel_init(void);
+bool kernel_ready(void);
+const char* kernel_error(void);
+int kernel_failures(void);
+void kernel_touch_down(float x, float y);
+void kernel_touch_move(float x, float y);
+void kernel_touch_up(float x, float y);
+void kernel_tap(float x, float y);
+void kernel_swipe(float x1, float y1, float x2, float y2, float duration);
+
 int inject_method(void);
 const char* inject_method_name(void);
 const char* inject_error(void);

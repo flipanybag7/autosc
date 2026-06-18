@@ -157,6 +157,22 @@ struct StatusView: View {
                         }
                     }
                     HStack {
+                        Text("Kernel Direct (IOKit)")
+                        Spacer()
+                        Text(appState.kernelAvailable ? "Available" : "Unavailable")
+                            .foregroundColor(appState.kernelAvailable ? .green : .red)
+                    }
+                    if !appState.kernelError.isEmpty {
+                        HStack {
+                            Text("Kernel Detail")
+                            Spacer()
+                            Text(appState.kernelError)
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+                    HStack {
                         Text("SpringBoard Tweak")
                         Spacer()
                         Text(appState.tweakConnected ? "Connected" : "Not Found")

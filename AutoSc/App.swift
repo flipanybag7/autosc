@@ -10,15 +10,18 @@ struct AutoScApp: App {
         let gsOk = gs_init()
         let udOk = userdev_init()
         let cgOk = cgevent_init()
+        let kernelOk = kernel_init()
         let hidErr = String(cString: hid_error())
         let gsErr = String(cString: gs_error())
         let udErr = String(cString: userdev_error())
         let cgErr = String(cString: cgevent_error())
+        let kernelErr = String(cString: kernel_error())
         print("[AutoSc] IOKit HID: \(hidOk ? "OK" : "FAIL") \(hidErr)")
         print("[AutoSc] GraphicsServices: \(gsOk ? "OK" : "FAIL") \(gsErr)")
         print("[AutoSc] IOHIDUserDevice: \(udOk ? "OK" : "FAIL") \(udErr)")
         print("[AutoSc] CGEvent: \(cgOk ? "OK" : "FAIL") \(cgErr)")
-        if !hidOk && !gsOk && !udOk && !cgOk {
+        print("[AutoSc] Kernel Direct: \(kernelOk ? "OK" : "FAIL") \(kernelErr)")
+        if !hidOk && !gsOk && !udOk && !cgOk && !kernelOk {
             let err = String(cString: inject_error())
             print("[AutoSc] ERROR: \(err)")
         }
@@ -50,6 +53,8 @@ final class AppState: ObservableObject {
     @Published var helperReady: Bool = false
     @Published var helperError: String = ""
     @Published var tweakConnected: Bool = false
+    @Published var kernelAvailable: Bool = false
+    @Published var kernelError: String = ""
 
     private init() {}
 
@@ -70,6 +75,8 @@ final class AppState: ObservableObject {
         helperReady = inj.helperReady
         helperError = inj.helperError
         tweakConnected = inj.tweakConnected
+        kernelAvailable = kernel_ready()
+        kernelError = String(cString: kernel_error())
 
         if injectMethod == "none" {
             lastError = String(cString: inject_error())
