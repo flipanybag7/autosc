@@ -19,8 +19,8 @@ static int _hid_send_failures = 0;
 
 static IOHIDSystemClientRef (*_IOHIDEventSystemClientCreate)(CFAllocatorRef);
 static IOHIDEventRef (*_IOHIDEventCreateDigitizerEvent)(
-    CFAllocatorRef, uint64_t, uint32_t, uint32_t, uint32_t, uint32_t,
-    int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, uint32_t);
+    CFAllocatorRef, uint64_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t,
+    int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, uint32_t);
 static IOHIDEventRef (*_IOHIDEventCreateDigitizerFingerEvent)(
     CFAllocatorRef, uint64_t, uint32_t, uint32_t, uint32_t,
     int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, uint32_t);
@@ -105,10 +105,12 @@ static void _hid_send(float x, float y, int32_t finger_id, int touch_type) {
         3,                     /* transducerType: finger */
         0,                     /* index */
         (uint32_t)finger_id + 2, /* identity */
-        touch_type == 2 ? 0 : 3, /* eventMask: range+touch */
+        3,                     /* eventMask: range+touch (1|2) */
+        0,                     /* buttonMask */
         fx, fy, 0,             /* x,y,z fixed */
         tip, 0,                /* tipPressure, auxPressure */
         0,                     /* twist */
+        0,                     /* tangentialPressure */
         range,                 /* range */
         0);                    /* options */
 
