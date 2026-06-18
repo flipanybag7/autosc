@@ -75,6 +75,16 @@ jobs:
           mkdir -p AutoSc/Resources
           echo "let helperBinaryB64 = \"$B64\"" > AutoSc/Resources/HelperBinary.swift
           echo "=== Helper binary embedded ==="
+      - name: Compile SpringBoard tweak
+        run: |
+          clang -arch arm64 \
+            -isysroot /Applications/Xcode_15.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS17.5.sdk \
+            -dynamiclib -current_version 1.0 -compatibility_version 1.0 \
+            -framework CoreFoundation \
+            -o AutoScTweak.dylib AutoScTweak/AutoScTweak.c
+          ldid -Sentitlements.plist AutoScTweak.dylib
+          echo "=== Tweak compiled and signed ==="
+          ls -la AutoScTweak.dylib
 
       - name: Generate Xcode project
         run: xcodegen generate
@@ -120,6 +130,9 @@ jobs:
           rm -rf "$APP/_CodeSignature" 2>/dev/null || true
           rm -rf "$APP/SC_Info" 2>/dev/null || true
           rm -f "$APP/embedded.mobileprovision" 2>/dev/null || true
+          echo "=== Embedding tweak in .app ==="
+          cp AutoScTweak.dylib "$APP/AutoScTweak.dylib"
+          chmod 644 "$APP/AutoScTweak.dylib"
 
       - name: Sign with ldid + entitlements
         run: |

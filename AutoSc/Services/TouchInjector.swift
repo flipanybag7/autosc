@@ -16,6 +16,7 @@ final class TouchInjector {
     private(set) var hidDispatchErr: Int = 0
     private(set) var helperReady: Bool = false
     private(set) var helperError: String = ""
+    private(set) var tweakConnected: Bool = false
 
     private init() {
         let w = UIScreen.main.bounds.width
@@ -25,6 +26,8 @@ final class TouchInjector {
         let helperErr = HelperExecutor.shared.prepare()
         helperReady = HelperExecutor.shared.isReady
         helperError = helperErr
+
+        tweakConnected = TweakComm.shared.connect()
 
         let m = inject_method()
         switch m {
@@ -53,13 +56,20 @@ final class TouchInjector {
 
     var canInject: Bool {
         let m = inject_method()
-        let ok = m >= 0 || helperReady
+        let ok = m >= 0 || helperReady || tweakConnected
         if !ok { lastError = String(cString: inject_error()) }
         return ok
     }
 
     private func dispatchTouch(at point: CGPoint, fingerId: Int32 = 0, phase: Int) {
-        // Helper binary takes priority when available
+        // Tweak (SpringBoard injection) takes priority
+        if tweakConnected {
+            if phase == 0 { _ = TweakComm.shared.touchDown(at: point) }
+            else if phase == 1 { _ = TweakComm.shared.touchMove(to: point) }
+            else { _ = TweakComm.shared.touchUp(at: point) }
+            return
+        }
+        // Helper binary takes second priority
         if helperReady {
             let _ = HelperExecutor.shared.sendTouch(
                 type: Int32(phase), x: Float(point.x), y: Float(point.y), fingerId: fingerId)
@@ -94,6 +104,10 @@ final class TouchInjector {
 
     func touchMove(to point: CGPoint, fingerId: Int32 = 0) {
         guard canInject else { return }
+        if tweakConnected {
+            _ = TweakComm.shared.touchMove(to: point)
+            injectionCount += 1; return
+        }
         if helperReady {
             let _ = HelperExecutor.shared.sendTouch(
                 type: 1, x: Float(point.x), y: Float(point.y), fingerId: fingerId)

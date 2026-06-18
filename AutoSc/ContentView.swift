@@ -157,6 +157,12 @@ struct StatusView: View {
                         }
                     }
                     HStack {
+                        Text("SpringBoard Tweak")
+                        Spacer()
+                        Text(appState.tweakConnected ? "Connected" : "Not Found")
+                            .foregroundColor(appState.tweakConnected ? .green : .orange)
+                    }
+                    HStack {
                         Text("Events Injected")
                         Spacer()
                         Text("\(appState.injectionCount)")

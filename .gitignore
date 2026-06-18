@@ -1,2 +1,3 @@
-# CI-generated helper binary (replaced by CI pipeline with actual binary)
+# CI-generated files
 AutoSc/Resources/HelperBinary.swift
+AutoScTweak.dylib

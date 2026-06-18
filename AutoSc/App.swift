@@ -49,6 +49,7 @@ final class AppState: ObservableObject {
     @Published var cgeventError: String = ""
     @Published var helperReady: Bool = false
     @Published var helperError: String = ""
+    @Published var tweakConnected: Bool = false
 
     private init() {}
 
@@ -68,6 +69,7 @@ final class AppState: ObservableObject {
         hidSendFailures = Int(hid_send_failures())
         helperReady = inj.helperReady
         helperError = inj.helperError
+        tweakConnected = inj.tweakConnected
 
         if injectMethod == "none" {
             lastError = String(cString: inject_error())
